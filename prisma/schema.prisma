@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Event {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  url         String?  // external link
+  location    String?
+  // store UTC ISO strings; render in local on client
+  start       DateTime
+  end         DateTime
+  timezone    String?  // optional display/default "America/New_York"
+  source      String?  // e.g., "Beeler.Tech", "IAB", etc.
+
+  status      String   @default("PUBLISHED") // PUBLISHED | PENDING
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

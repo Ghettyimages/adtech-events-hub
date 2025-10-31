@@ -48,11 +48,15 @@ export function buildGoogleCalendarSubscribeUrl(feedUrl: string): string {
  * Formats an event for FullCalendar
  */
 export function formatEventForCalendar(event: Event) {
+  // Handle both Date objects and ISO string dates
+  const startDate = typeof event.start === 'string' ? event.start : event.start.toISOString();
+  const endDate = typeof event.end === 'string' ? event.end : event.end.toISOString();
+  
   return {
     id: event.id,
     title: event.title,
-    start: event.start.toISOString(),
-    end: event.end.toISOString(),
+    start: startDate,
+    end: endDate,
     url: event.url || undefined,
     extendedProps: {
       description: event.description,

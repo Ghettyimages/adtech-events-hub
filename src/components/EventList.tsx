@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 interface EventListProps {
   events: Event[];
   onSelect: (event: Event) => void;
+  emptyStateMessage?: string;
 }
 
 function formatDate(value: Date | string | null) {
@@ -21,11 +22,11 @@ function formatDate(value: Date | string | null) {
   return format(date, 'PPpp');
 }
 
-export default function EventList({ events, onSelect }: EventListProps) {
+export default function EventList({ events, onSelect, emptyStateMessage }: EventListProps) {
   if (!events.length) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 text-center text-gray-600 dark:text-gray-300">
-        No published events yet. Check back soon!
+        {emptyStateMessage || 'No published events yet. Check back soon!'}
       </div>
     );
   }

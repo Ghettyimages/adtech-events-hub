@@ -1,0 +1,2 @@
+root: C:\Users\aster\Documents\Adtech-events-hub\adtech-events-hub\nvm
+path: C:\nvm4w\nodejs

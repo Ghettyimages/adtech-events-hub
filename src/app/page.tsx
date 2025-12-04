@@ -1,5 +1,14 @@
+import { Suspense } from 'react';
 import Calendar from '@/components/Calendar';
 import { buildGoogleCalendarSubscribeUrl } from '@/lib/events';
+
+function CalendarFallback() {
+  return (
+    <div className="flex items-center justify-center h-96">
+      <div className="text-xl text-gray-600">Loading calendar...</div>
+    </div>
+  );
+}
 
 export default function HomePage() {
   const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
@@ -34,7 +43,9 @@ export default function HomePage() {
         </div>
       </div>
 
-      <Calendar />
+      <Suspense fallback={<CalendarFallback />}>
+        <Calendar />
+      </Suspense>
     </div>
   );
 }

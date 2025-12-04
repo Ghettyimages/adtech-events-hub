@@ -19,7 +19,114 @@ model Event {
   timezone    String?  // optional display/default "America/New_York"
   source      String?  // e.g., "Beeler.Tech", "IAB", etc.
 
+  // NEW: tags and structured location fields
+  // NOTE: Changed from String[] to String for SQLite compatibility - store as JSON string
+  tags        String?  // JSON array string, e.g., '["tag1","tag2"]'
+  country     String?
+  region      String?  // State/province
+  city        String?
+
   status      String   @default("PUBLISHED") // PUBLISHED | PENDING
+  // Counter cache
+  subscribers Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // relations
+  follows     EventFollow[]
+}
+
+model MonitoredUrl {
+  id            String   @id @default(cuid())
+  url           String   @unique
+  name          String?
+  enabled       Boolean  @default(true)
+  lastChecked   DateTime?
+  lastSuccess   DateTime?
+  lastError     String?
+  checkInterval Int      @default(86400000) // 24 hours in milliseconds
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String?  @unique
+  name          String?
+  // Profile fields we want to capture
+  company       String?
+  title         String?
+  companyEmail  String?
+  location      String?
+  // Consent & preferences
+  consentEmail        Boolean  @default(false)
+  consentCalendar     Boolean  @default(false)
+  termsAcceptedAt     DateTime?
+  // Token for personal iCal feeds
+  feedToken     String?  @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  // NextAuth relations (if using Auth.js adapter)
+  accounts      Account[]
+  sessions      Session[]
+  // Subscription relations
+  subscriptions Subscription[]
+  eventFollows  EventFollow[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  @@unique([identifier, token])
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+  kind        String   // 'FULL' | 'CUSTOM'
+  active      Boolean  @default(true)
+  filter      String?  // JSON filter for rule-based subscriptions (tags, location, date range)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  selections  EventFollow[]
+  @@index([userId, kind, active])
+}
+
+model EventFollow {
+  id             String   @id @default(cuid())
+  userId         String
+  eventId        String
+  subscriptionId String?
+  createdAt      DateTime @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  @@unique([userId, eventId]) // a user follows an event at most once
+  @@index([eventId])
 }

@@ -19,7 +19,8 @@ function formatDate(value: Date | string | null) {
     return 'TBD';
   }
 
-  return format(date, 'PPpp');
+  // Format as date only (no time) for all-day events
+  return format(date, 'PP');
 }
 
 export default function EventList({ events, onSelect, emptyStateMessage }: EventListProps) {
@@ -46,8 +47,11 @@ export default function EventList({ events, onSelect, emptyStateMessage }: Event
               <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
                 Ends
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
                 Location
+              </th>
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                Tags
               </th>
               <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
                 Source
@@ -77,15 +81,40 @@ export default function EventList({ events, onSelect, emptyStateMessage }: Event
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                   {formatDate(event.start)}
-                  {event.timezone && (
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{event.timezone}</div>
-                  )}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                   {formatDate(event.end)}
                 </td>
-                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                  {event.location || 'Online'}
+                <td className="px-4 py-4 whitespace-normal text-sm text-gray-700 dark:text-gray-300">
+                  {(event.city || event.region || event.country) ? (
+                    <div>
+                      {[event.city, event.region, event.country].filter(Boolean).join(', ')}
+                      {event.location && 
+                       event.location !== [event.city, event.region, event.country].filter(Boolean).join(', ') && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {event.location}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    event.location || 'Online'
+                  )}
+                </td>
+                <td className="px-4 py-4 whitespace-normal text-sm text-gray-700 dark:text-gray-300">
+                  {event.tags && event.tags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {event.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-gray-400 dark:text-gray-500">—</span>
+                  )}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                   {event.source || 'N/A'}

@@ -6,12 +6,63 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
+    const tags = searchParams.get('tags');
+    const country = searchParams.get('country');
+    const region = searchParams.get('region');
+    const city = searchParams.get('city');
+    const sort = searchParams.get('sort') || 'date';
 
-    const where = status ? { status } : { status: 'PUBLISHED' };
+    // Build where clause
+    const where: any = {
+      status: status || 'PUBLISHED',
+    };
+
+    // Add tag filtering (array contains any of the specified tags)
+    if (tags) {
+      const tagArray = tags.split(',').map((t) => t.trim()).filter(Boolean);
+      if (tagArray.length > 0) {
+        where.tags = {
+          hasSome: tagArray,
+        };
+      }
+    }
+
+    // Add location filtering
+    if (country) {
+      where.country = country;
+    }
+    if (region) {
+      where.region = region;
+    }
+    if (city) {
+      // Case-insensitive search (SQLite doesn't support mode: 'insensitive', but we can use contains)
+      where.city = {
+        contains: city,
+      };
+    }
+
+    // Build orderBy clause
+    let orderBy: any;
+    switch (sort) {
+      case 'title':
+        orderBy = { title: 'asc' };
+        break;
+      case 'location':
+        orderBy = [
+          { country: 'asc' },
+          { region: 'asc' },
+          { city: 'asc' },
+        ];
+        break;
+      case 'date':
+      default:
+        orderBy = { start: 'asc' };
+        break;
+    }
 
     const events = await prisma.event.findMany({
       where,
-      orderBy: { start: 'asc' },
+      orderBy,
     });
 
     return NextResponse.json({ events });
@@ -52,6 +103,10 @@ export async function POST(request: NextRequest) {
         end: endDate,
         timezone: validatedData.timezone || null,
         source: validatedData.source || null,
+        tags: validatedData.tags || [],
+        country: validatedData.country || null,
+        region: validatedData.region || null,
+        city: validatedData.city || null,
         status: 'PENDING',
       },
     });

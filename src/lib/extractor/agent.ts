@@ -62,7 +62,9 @@ const parseDateToISO = (value: string | null | undefined): string | undefined =>
   if (!value) return undefined;
   const parsed = parse(value, 'MMM dd, yyyy', new Date());
   if (!isValid(parsed)) return undefined;
-  const utcDate = new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 0, 0, 0, 0));
+  // Use noon UTC instead of midnight to avoid timezone day boundary issues
+  // This ensures dates display correctly regardless of local timezone
+  const utcDate = new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12, 0, 0, 0));
   return utcDate.toISOString();
 };
 
@@ -403,9 +405,12 @@ const refineEventFromSnippet = (
 
     const candidateLines = [
       line,
+      lines[i - 2] ?? '',
       lines[i - 1] ?? '',
       lines[i + 1] ?? '',
       lines[i + 2] ?? '',
+      lines[i + 3] ?? '',
+      lines[i + 4] ?? '',
     ];
 
     let dateParse: ReturnType<typeof parseDateFromLine> | null = null;
@@ -466,7 +471,8 @@ const refineEventFromSnippet = (
       const sourceLine = candidateLines[dateLineIndex];
       const evidenceIndex = sourceLine.toLowerCase().indexOf(evidence.toLowerCase());
       if (evidenceIndex !== -1) {
-        const afterDate = sourceLine.slice(evidenceIndex + evidence.length).trim();
+        // Look further ahead for location after date (increased from unlimited to 300 chars)
+        const afterDate = sourceLine.slice(evidenceIndex + evidence.length, evidenceIndex + evidence.length + 300).trim();
         if (afterDate) {
           // Try to extract location from the text after date
           const afterDateLocationMatch = afterDate.match(/([A-Z][A-Za-z&'\.\-]+(?:\s+[A-Z][A-Za-z&'\.\-]+)*),\s*([A-Z]{2})\b/);
@@ -494,9 +500,14 @@ const refineEventFromSnippet = (
       }
     }
 
-    // Fallback: check next line
-    if (!locationCandidate && lines[i + 1]) {
-      locationCandidate = lines[i + 1];
+    // Fallback: check next few lines (expanded from 1 to 3 lines)
+    if (!locationCandidate) {
+      for (let nextLineIdx = i + 1; nextLineIdx <= i + 3 && nextLineIdx < lines.length; nextLineIdx++) {
+        if (lines[nextLineIdx]) {
+          locationCandidate = lines[nextLineIdx];
+          break;
+        }
+      }
     }
 
     // Normalize the location candidate
@@ -618,7 +629,7 @@ const findElementHtmlCandidatesForTitle = (
 const getContextSnippet = (
   html: string,
   title: string,
-  windowSize = 1200,
+  windowSize = 2400,  // Increased from 1200 to 2400 for better location detection
   expectedYear?: number,
   keywords?: string[]
 ) => {
@@ -747,8 +758,9 @@ const parseDateMatch = (
   const monthIndex = MONTH_NAMES.findIndex((month) => month.startsWith(monthMatch[0].toLowerCase()));
   if (monthIndex === -1) return null;
 
-  const startDate = new Date(Date.UTC(yearPart, monthIndex, startDay, 0, 0, 0, 0));
-  const endDate = new Date(Date.UTC(yearPart, monthIndex, endDay, 0, 0, 0, 0));
+  // Use noon UTC instead of midnight to avoid timezone day boundary issues
+  const startDate = new Date(Date.UTC(yearPart, monthIndex, startDay, 12, 0, 0, 0));
+  const endDate = new Date(Date.UTC(yearPart, monthIndex, endDay, 12, 0, 0, 0));
 
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
     return null;
@@ -806,8 +818,8 @@ const findBestLocation = (
     const separators = [' – ', ' — ', ' - '];
     for (const separator of separators) {
       const sepIndex = afterTitle.indexOf(separator);
-      if (sepIndex !== -1 && sepIndex < 120) {
-        const remainder = afterTitle.slice(sepIndex + separator.length, sepIndex + separator.length + 150);
+      if (sepIndex !== -1 && sepIndex < 200) {  // Increased from 120 to 200
+        const remainder = afterTitle.slice(sepIndex + separator.length, sepIndex + separator.length + 250);  // Increased from 150 to 250
         const directMatch = remainder.match(/([A-Z][A-Za-z&'. ]+,\s*[A-Z]{2})/);
         if (directMatch) {
           const location = collapseWhitespace(directMatch[1]);
@@ -940,7 +952,7 @@ const verifyWithContext = (
     }
   }
 
-  const context = getContextSnippet(html, event.title, 1800, expectedYear, keywords);
+  const context = getContextSnippet(html, event.title, 3000, expectedYear, keywords);  // Increased from 1800 to 3000
   if (!context) {
     // No context found - verify location against full HTML if it exists
     let verifiedLocationStatus = event.location_status ?? 'tbd';

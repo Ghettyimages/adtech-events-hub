@@ -2,23 +2,24 @@ import { Event } from '@prisma/client';
 import { format } from 'date-fns';
 
 /**
- * Converts a Date to Google Calendar format (UTC): YYYYMMDDTHHmmssZ
+ * Converts a Date to Google Calendar all-day format: YYYYMMDD
  */
 export function toGoogleCalendarDate(date: Date): string {
-  return format(date, "yyyyMMdd'T'HHmmss'Z'");
+  return format(date, 'yyyyMMdd');
 }
 
 /**
- * Builds a Google Calendar event URL
+ * Builds a Google Calendar event URL for all-day events
  */
 export function buildGoogleCalendarUrl(event: Event): string {
   const params = new URLSearchParams();
   params.set('action', 'TEMPLATE');
   params.set('text', event.title);
   
-  const startUtc = toGoogleCalendarDate(new Date(event.start));
-  const endUtc = toGoogleCalendarDate(new Date(event.end));
-  params.set('dates', `${startUtc}/${endUtc}`);
+  // Format as all-day events (date only, no time)
+  const startDate = toGoogleCalendarDate(new Date(event.start));
+  const endDate = toGoogleCalendarDate(new Date(event.end));
+  params.set('dates', `${startDate}/${endDate}`);
   
   if (event.location) {
     params.set('location', event.location);
@@ -26,10 +27,6 @@ export function buildGoogleCalendarUrl(event: Event): string {
   
   if (event.description) {
     params.set('details', event.description);
-  }
-  
-  if (event.timezone) {
-    params.set('ctz', event.timezone);
   }
 
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
@@ -45,7 +42,7 @@ export function buildGoogleCalendarSubscribeUrl(feedUrl: string): string {
 }
 
 /**
- * Formats an event for FullCalendar
+ * Formats an event for FullCalendar as an all-day event
  */
 export function formatEventForCalendar(event: Event) {
   // Handle both Date objects and ISO string dates
@@ -57,6 +54,7 @@ export function formatEventForCalendar(event: Event) {
     title: event.title,
     start: startDate,
     end: endDate,
+    allDay: true, // Mark as all-day event (no time display)
     url: event.url || undefined,
     extendedProps: {
       description: event.description,

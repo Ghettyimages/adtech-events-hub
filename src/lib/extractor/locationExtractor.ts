@@ -316,3 +316,110 @@ export function extractStrictLocation(html: string, baseUrl?: string): StrictLoc
     location_status: 'tbd',
   };
 }
+
+/**
+ * Parse a location string into structured components (city, region, country)
+ * Examples:
+ * - "New Orleans, LA" -> { city: "New Orleans", region: "LA", country: "US" }
+ * - "Kimpton Hotel Fontenot, New Orleans, LA" -> { city: "New Orleans", region: "LA", country: "US" }
+ * - "London, UK" -> { city: "London", country: "UK" }
+ */
+export function parseLocationString(location: string): {
+  city?: string;
+  region?: string;
+  country?: string;
+} {
+  if (!location || !location.trim()) {
+    return {};
+  }
+
+  const trimmed = location.trim();
+  const result: { city?: string; region?: string; country?: string } = {};
+
+  // Try to parse patterns like "City, State" or "City, ST"
+  const patterns = [
+    // Standard: "City, ST" or "City, State"
+    /^(.+?),\s*([A-Z]{2}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$/,
+    // With venue: "Venue, City, ST"
+    /^.+?,\s*(.+?),\s*([A-Z]{2}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$/,
+    // With country: "City, ST, Country" or "City, Country"
+    /^(.+?),\s*(.+?),\s*(.+)$/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (!match) continue;
+
+    if (pattern === patterns[0]) {
+      // "City, ST" format
+      const [, cityPart, statePart] = match;
+      const stateLower = statePart.toLowerCase();
+      const isValidState = STATE_ABBREVIATIONS.has(statePart) || STATE_NAMES.has(stateLower);
+
+      if (isValidState) {
+        result.city = cityPart.trim();
+        result.region = STATE_NAMES.has(stateLower)
+          ? STATE_NAME_TO_ABBR[stateLower] || statePart.toUpperCase()
+          : statePart.toUpperCase();
+        result.country = 'US';
+        return result;
+      }
+    } else if (pattern === patterns[1]) {
+      // "Venue, City, ST" format
+      const [, cityPart, statePart] = match;
+      const stateLower = statePart.toLowerCase();
+      const isValidState = STATE_ABBREVIATIONS.has(statePart) || STATE_NAMES.has(stateLower);
+
+      if (isValidState) {
+        result.city = cityPart.trim();
+        result.region = STATE_NAMES.has(stateLower)
+          ? STATE_NAME_TO_ABBR[stateLower] || statePart.toUpperCase()
+          : statePart.toUpperCase();
+        result.country = 'US';
+        return result;
+      }
+    } else if (pattern === patterns[2]) {
+      // "City, Region, Country" format
+      const [, cityPart, regionPart, countryPart] = match;
+      const regionLower = regionPart.toLowerCase();
+      const isUSState = STATE_ABBREVIATIONS.has(regionPart) || STATE_NAMES.has(regionLower);
+
+      result.city = cityPart.trim();
+
+      if (isUSState) {
+        result.region = STATE_NAMES.has(regionLower)
+          ? STATE_NAME_TO_ABBR[regionLower] || regionPart.toUpperCase()
+          : regionPart.toUpperCase();
+        result.country = countryPart.trim();
+      } else {
+        // Might be international: "City, Region, Country"
+        result.region = regionPart.trim();
+        result.country = countryPart.trim();
+      }
+
+      // Default to US if country looks like a US state
+      if (!result.country || result.country.length === 2) {
+        const countryLower = (result.country || '').toLowerCase();
+        if (STATE_ABBREVIATIONS.has(result.country || '') || STATE_NAMES.has(countryLower)) {
+          result.country = 'US';
+        }
+      }
+
+      return result;
+    }
+  }
+
+  // Fallback: check if it's just a US state
+  const stateLower = trimmed.toLowerCase();
+  if (STATE_ABBREVIATIONS.has(trimmed) || STATE_NAMES.has(stateLower)) {
+    result.region = STATE_NAMES.has(stateLower)
+      ? STATE_NAME_TO_ABBR[stateLower] || trimmed.toUpperCase()
+      : trimmed.toUpperCase();
+    result.country = 'US';
+    return result;
+  }
+
+  // If no pattern matches, assume it's a city or general location
+  // Don't try to guess structured components
+  return {};
+}

@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import Link from 'next/link';
+import SessionProvider from '@/components/SessionProvider';
+import AuthNav from '@/components/AuthNav';
 
 export const metadata: Metadata = {
   title: 'AdTech Events Hub',
@@ -15,38 +17,41 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        <header className="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
-          <div className="container mx-auto px-4 py-4">
-            <nav className="flex items-center justify-between">
-              <Link href="/" className="text-2xl font-bold hover:opacity-90 transition">
-                🎯 AdTech Events Hub
-              </Link>
-              <div className="flex gap-4 items-center">
-                <Link
-                  href="/submit"
-                  className="bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold hover:bg-blue-50 transition"
-                >
-                  Submit Event
+        <SessionProvider>
+          <header className="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
+            <div className="container mx-auto px-4 py-4">
+              <nav className="flex items-center justify-between">
+                <Link href="/" className="text-2xl font-bold hover:opacity-90 transition">
+                  🎯 AdTech Events Hub
                 </Link>
-                <Link
-                  href="/admin"
-                  className="text-white hover:underline text-sm"
-                >
-                  Admin
-                </Link>
-              </div>
-            </nav>
-          </div>
-        </header>
-        <main className="min-h-screen">{children}</main>
-        <footer className="bg-gray-100 dark:bg-gray-900 border-t mt-12">
-          <div className="container mx-auto px-4 py-6 text-center text-gray-600 dark:text-gray-400">
-            <p>
-              AdTech Events Hub &copy; {new Date().getFullYear()} | Built with Next.js, Prisma
-              & FullCalendar
-            </p>
-          </div>
-        </footer>
+                <div className="flex gap-4 items-center">
+                  <Link
+                    href="/submit"
+                    className="bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold hover:bg-blue-50 transition"
+                  >
+                    Submit Event
+                  </Link>
+                  <Link
+                    href="/admin"
+                    className="text-white hover:underline text-sm"
+                  >
+                    Admin
+                  </Link>
+                  <AuthNav />
+                </div>
+              </nav>
+            </div>
+          </header>
+          <main className="min-h-screen">{children}</main>
+          <footer className="bg-gray-100 dark:bg-gray-900 border-t mt-12">
+            <div className="container mx-auto px-4 py-6 text-center text-gray-600 dark:text-gray-400">
+              <p>
+                AdTech Events Hub &copy; {new Date().getFullYear()} | Built with Next.js, Prisma
+                & FullCalendar
+              </p>
+            </div>
+          </footer>
+        </SessionProvider>
       </body>
     </html>
   );

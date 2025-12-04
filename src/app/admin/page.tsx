@@ -18,9 +18,11 @@ interface MonitoredUrl {
 
 export default function AdminPage() {
   const [pendingEvents, setPendingEvents] = useState<Event[]>([]);
+  const [publishedEvents, setPublishedEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [eventViewMode, setEventViewMode] = useState<'pending' | 'published'>('pending');
   
   // URL scraping state
   const [scrapeUrl, setScrapeUrl] = useState('');
@@ -32,8 +34,14 @@ export default function AdminPage() {
   const [extractedEvents, setExtractedEvents] = useState<any[]>([]);
   const [extractionMethod, setExtractionMethod] = useState<string | null>(null);
 
+  // Edit event state
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  const [editFormData, setEditFormData] = useState<Partial<Event>>({});
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     fetchPendingEvents();
+    fetchPublishedEvents();
     fetchMonitoredUrls();
   }, []);
 
@@ -64,6 +72,17 @@ export default function AdminPage() {
     }
   };
 
+  const fetchPublishedEvents = async () => {
+    try {
+      const res = await fetch('/api/events?status=PUBLISHED');
+      if (!res.ok) throw new Error('Failed to fetch published events');
+      const data = await res.json();
+      setPublishedEvents(data.events);
+    } catch (err: any) {
+      console.error('Failed to fetch published events:', err);
+    }
+  };
+
   const handleApprove = async (id: string) => {
     try {
       const res = await fetch(`/api/events/${id}`, {
@@ -79,6 +98,7 @@ export default function AdminPage() {
 
       // Trigger revalidation
       await fetch('/api/revalidate', { method: 'POST' });
+      await fetchPublishedEvents(); // Refresh published events list
       setFeedback('success', 'Event approved and published!');
     } catch (err: any) {
       setFeedback('error', err.message);
@@ -194,6 +214,199 @@ export default function AdminPage() {
       setFeedback('success', 'Monitored URL removed.');
     } catch (err: any) {
       setFeedback('error', err.message || 'Failed to delete monitored URL');
+    }
+  };
+
+  const handleEditEvent = (event: Event) => {
+    setEditingEvent(event);
+    setEditFormData({
+      title: event.title,
+      description: event.description || '',
+      url: event.url || '',
+      location: event.location || '',
+      start: new Date(event.start).toISOString().slice(0, 16), // Format for datetime-local input
+      end: new Date(event.end).toISOString().slice(0, 16),
+      timezone: event.timezone || '',
+      source: event.source || '',
+    });
+  };
+
+  const handleSaveEdit = async (andApprove: boolean = false) => {
+    if (!editingEvent) return;
+
+    setSaving(true);
+    try {
+      // Convert datetime-local to ISO string
+      const updateData: any = {};
+
+      // Build update data object - only include fields that are defined
+      // Title is required
+      if (editFormData.title !== undefined) {
+        if (!editFormData.title || editFormData.title.trim() === '') {
+          throw new Error('Title is required');
+        }
+        updateData.title = editFormData.title.trim();
+      }
+      
+      // Description is optional - send null if empty, undefined if not provided
+      if (editFormData.description !== undefined) {
+        const trimmed = editFormData.description?.trim();
+        updateData.description = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+      
+      // URL - validation schema expects empty string, valid URL, or null
+      if (editFormData.url !== undefined) {
+        const urlValue = editFormData.url?.trim() || '';
+        updateData.url = urlValue.length > 0 ? urlValue : null;
+      }
+      
+      // Location is optional - send null if empty
+      if (editFormData.location !== undefined) {
+        const trimmed = editFormData.location?.trim();
+        updateData.location = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+      
+      // Timezone is optional - send null if empty
+      if (editFormData.timezone !== undefined) {
+        const trimmed = editFormData.timezone?.trim();
+        updateData.timezone = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+      
+      // Source is optional - send null if empty
+      if (editFormData.source !== undefined) {
+        const trimmed = editFormData.source?.trim();
+        updateData.source = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+
+      // Handle dates - datetime-local format is "YYYY-MM-DDTHH:mm"
+      // These are required fields
+      if (editFormData.start !== undefined && editFormData.start !== null && editFormData.start !== '') {
+        const startDate = new Date(editFormData.start);
+        if (isNaN(startDate.getTime())) {
+          throw new Error('Invalid start date format');
+        }
+        updateData.start = startDate.toISOString();
+      } else {
+        throw new Error('Start date is required');
+      }
+      
+      if (editFormData.end !== undefined && editFormData.end !== null && editFormData.end !== '') {
+        const endDate = new Date(editFormData.end);
+        if (isNaN(endDate.getTime())) {
+          throw new Error('Invalid end date format');
+        }
+        updateData.end = endDate.toISOString();
+      } else {
+        throw new Error('End date is required');
+      }
+      
+      // Validate that end is after start
+      if (updateData.start && updateData.end) {
+        const start = new Date(updateData.start);
+        const end = new Date(updateData.end);
+        if (end <= start) {
+          throw new Error('End date must be after start date');
+        }
+      }
+
+      // If approving, set status to PUBLISHED
+      if (andApprove) {
+        updateData.status = 'PUBLISHED';
+      }
+
+      console.log('=== UPDATE REQUEST ===');
+      console.log('Event ID:', editingEvent.id);
+      console.log('Update Data:', JSON.stringify(updateData, null, 2));
+      console.log('=====================');
+
+      const res = await fetch(`/api/events/${editingEvent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData),
+      });
+
+      let responseData: any = {};
+      const contentType = res.headers.get('content-type');
+      
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          responseData = await res.json();
+          console.log('Response data:', JSON.stringify(responseData, null, 2));
+        } catch (parseError) {
+          console.error('Failed to parse JSON response:', parseError);
+          const text = await res.text();
+          console.error('Response text:', text);
+          throw new Error(`Server error (${res.status}): ${text || res.statusText}`);
+        }
+      } else {
+        const text = await res.text();
+        console.error('Non-JSON response:', text);
+        throw new Error(`Server error (${res.status}): ${text || res.statusText}`);
+      }
+
+      if (!res.ok) {
+        console.error('=== UPDATE FAILED ===');
+        console.error('Status:', res.status);
+        console.error('Full Response Object:', responseData);
+        console.error('Response JSON:', JSON.stringify(responseData, null, 2));
+        console.error('====================');
+        
+        let errorMessage = 'Failed to update event';
+        
+        if (responseData.error) {
+          errorMessage = responseData.error;
+        }
+        
+        // Handle Zod validation errors
+        if (responseData.details && Array.isArray(responseData.details) && responseData.details.length > 0) {
+          console.error('Validation error details:', responseData.details);
+          const errors = responseData.details.map((err: any) => {
+            const path = err.path?.join('.') || 'unknown field';
+            const code = err.code || 'unknown';
+            return `${path} (${code}): ${err.message}`;
+          }).join('; ');
+          errorMessage = `Validation errors: ${errors}`;
+        } else if (responseData.message) {
+          errorMessage = responseData.message;
+        } else if (Object.keys(responseData).length > 0) {
+          errorMessage = JSON.stringify(responseData, null, 2);
+        }
+        
+        console.error('Final error message:', errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      console.log('Update successful:', responseData);
+
+      await fetchPublishedEvents();
+      await fetchPendingEvents();
+      await fetch('/api/revalidate', { method: 'POST' });
+      setEditingEvent(null);
+      setEditFormData({});
+      setFeedback('success', andApprove ? 'Event updated and approved!' : 'Event updated successfully!');
+    } catch (err: any) {
+      console.error('Error in handleSaveEdit:', err);
+      setFeedback('error', err.message || 'Failed to update event');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteEvent = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this event? This action cannot be undone.')) return;
+
+    try {
+      const res = await fetch(`/api/events/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) throw new Error('Failed to delete event');
+
+      await fetchPublishedEvents();
+      await fetch('/api/revalidate', { method: 'POST' });
+      setFeedback('success', 'Event deleted successfully.');
+    } catch (err: any) {
+      setFeedback('error', err.message || 'Failed to delete event');
     }
   };
 
@@ -322,7 +535,7 @@ export default function AdminPage() {
                       {event.start && (
                         <div>
                           <strong>Start:</strong>{' '}
-                          {format(new Date(event.start), 'PPpp')}
+                          {format(new Date(event.start), 'PP')}
                           {event.date_status && (
                             <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
                               event.date_status === 'confirmed'
@@ -336,7 +549,7 @@ export default function AdminPage() {
                       )}
                       {event.end && (
                         <div>
-                          <strong>End:</strong> {format(new Date(event.end), 'PPpp')}
+                          <strong>End:</strong> {format(new Date(event.end), 'PP')}
                         </div>
                       )}
                       {event.location && (
@@ -454,97 +667,391 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Pending Events Section */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
-          ⏳ Pending Events ({pendingEvents.length})
+      {/* Events View Toggle */}
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
+          {eventViewMode === 'pending' ? '⏳ Pending Events' : '✅ Published Events'}
         </h2>
-        {pendingEvents.length === 0 ? (
+        <div className="flex gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+          <button
+            onClick={() => setEventViewMode('pending')}
+            className={`px-4 py-2 rounded-md text-sm font-semibold transition ${
+              eventViewMode === 'pending'
+                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            Pending ({pendingEvents.length})
+          </button>
+          <button
+            onClick={() => setEventViewMode('published')}
+            className={`px-4 py-2 rounded-md text-sm font-semibold transition ${
+              eventViewMode === 'published'
+                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            Published ({publishedEvents.length})
+          </button>
+        </div>
+      </div>
+
+      {/* Published Events Section */}
+      {eventViewMode === 'published' && (
+        <div className="mb-8">
+        {publishedEvents.length === 0 ? (
           <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
             <p className="text-gray-600 dark:text-gray-400 text-lg">
-              No pending events to review.
+              No published events yet.
             </p>
           </div>
         ) : (
-          <div className="space-y-6">
-            {pendingEvents.map((event) => (
-              <div
-                key={event.id}
-                className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 shadow-md"
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex-1">
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                      {event.title}
-                    </h2>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                      <p>
-                        <strong>Start:</strong> {format(new Date(event.start), 'PPpp')}
-                      </p>
-                      <p>
-                        <strong>End:</strong> {format(new Date(event.end), 'PPpp')}
-                      </p>
-                      {event.location && (
-                        <p>
-                          <strong>Location:</strong> {event.location}
-                        </p>
-                      )}
-                      {event.timezone && (
-                        <p>
-                          <strong>Timezone:</strong> {event.timezone}
-                        </p>
-                      )}
-                      {event.source && (
-                        <p>
-                          <strong>Source:</strong> {event.source}
-                        </p>
-                      )}
-                      {event.url && (
-                        <p>
-                          <strong>URL:</strong>{' '}
-                          <a
-                            href={event.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline break-all"
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                      Title
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                      Start
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                      End
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                      Location
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                      Source
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {publishedEvents.map((event) => (
+                    <tr key={event.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/60">
+                      <td className="px-4 py-4 whitespace-normal text-sm font-medium text-gray-900 dark:text-gray-100">
+                        <div className="flex items-center gap-2">
+                          <span>{event.title}</span>
+                          {'subscribers' in event && typeof event.subscribers === 'number' && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                              👥 {event.subscribers}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                        {format(new Date(event.start), 'PP')}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                        {format(new Date(event.end), 'PP')}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                        {event.location || '—'}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                        {event.source || '—'}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => handleEditEvent(event)}
+                            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-xs font-semibold"
                           >
-                            {event.url}
-                          </a>
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteEvent(event.id)}
+                            className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-xs font-semibold"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        </div>
+      )}
+
+      {/* Pending Events Section */}
+      {eventViewMode === 'pending' && (
+        <div className="mb-8">
+          {pendingEvents.length === 0 ? (
+            <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
+              <p className="text-gray-600 dark:text-gray-400 text-lg">
+                No pending events to review.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {pendingEvents.map((event) => (
+                <div
+                  key={event.id}
+                  className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 shadow-md"
+                >
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {event.title}
+                        </h2>
+                        {'subscribers' in event && typeof event.subscribers === 'number' && (
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                            👥 {event.subscribers} {event.subscribers === 1 ? 'subscriber' : 'subscribers'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                        <p>
+                          <strong>Start:</strong> {format(new Date(event.start), 'PP')}
                         </p>
+                        <p>
+                          <strong>End:</strong> {format(new Date(event.end), 'PP')}
+                        </p>
+                        {event.location && (
+                          <p>
+                            <strong>Location:</strong> {event.location}
+                          </p>
+                        )}
+                        {event.timezone && (
+                          <p>
+                            <strong>Timezone:</strong> {event.timezone}
+                          </p>
+                        )}
+                        {event.source && (
+                          <p>
+                            <strong>Source:</strong> {event.source}
+                          </p>
+                        )}
+                        {event.url && (
+                          <p>
+                            <strong>URL:</strong>{' '}
+                            <a
+                              href={event.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline break-all"
+                            >
+                              {event.url}
+                            </a>
+                          </p>
+                        )}
+                      </div>
+                      {event.description && (
+                        <div className="mt-4">
+                          <strong className="text-sm text-gray-700 dark:text-gray-300">
+                            Description:
+                          </strong>
+                          <p className="text-gray-700 dark:text-gray-300 mt-1 whitespace-pre-wrap">
+                            {event.description}
+                          </p>
+                        </div>
                       )}
                     </div>
-                    {event.description && (
-                      <div className="mt-4">
-                        <strong className="text-sm text-gray-700 dark:text-gray-300">
-                          Description:
-                        </strong>
-                        <p className="text-gray-700 dark:text-gray-300 mt-1 whitespace-pre-wrap">
-                          {event.description}
-                        </p>
-                      </div>
-                    )}
+                  </div>
+
+                  <div className="flex gap-3 pt-4 border-t">
+                    <button
+                      onClick={() => handleEditEvent(event)}
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      onClick={() => handleApprove(event.id)}
+                      className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
+                    >
+                      ✅ Approve
+                    </button>
+                    <button
+                      onClick={() => handleReject(event.id)}
+                      className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold"
+                    >
+                      ❌ Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Edit Event Modal */}
+      {editingEvent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Edit Event</h2>
+                <button
+                  onClick={() => {
+                    setEditingEvent(null);
+                    setEditFormData({});
+                  }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSaveEdit();
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Title *
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.title || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    value={editFormData.description || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                    rows={4}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Start Date *
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={editFormData.start || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, start: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      End Date *
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={editFormData.end || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, end: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Location
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.location || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, location: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    URL
+                  </label>
+                  <input
+                    type="url"
+                    value={editFormData.url || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, url: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Source
+                    </label>
+                    <input
+                      type="text"
+                      value={editFormData.source || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, source: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Timezone
+                    </label>
+                    <input
+                      type="text"
+                      value={editFormData.timezone || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, timezone: e.target.value })}
+                      placeholder="America/New_York"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    />
                   </div>
                 </div>
 
                 <div className="flex gap-3 pt-4 border-t">
                   <button
-                    onClick={() => handleApprove(event.id)}
-                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
+                    type="submit"
+                    disabled={saving}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    ✅ Approve
+                    {saving ? 'Saving...' : 'Save Changes'}
                   </button>
+                  {editingEvent?.status === 'PENDING' && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleSaveEdit(true);
+                      }}
+                      disabled={saving}
+                      className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {saving ? 'Saving...' : 'Save & Approve'}
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleReject(event.id)}
-                    className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold"
+                    type="button"
+                    onClick={() => {
+                      setEditingEvent(null);
+                      setEditFormData({});
+                    }}
+                    className="px-6 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition font-semibold"
                   >
-                    ❌ Reject
+                    Cancel
                   </button>
                 </div>
-              </div>
-            ))}
+              </form>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

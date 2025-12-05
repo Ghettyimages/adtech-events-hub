@@ -8,7 +8,7 @@ import Link from 'next/link';
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/profile';
+  const callbackUrl = searchParams.get('callbackUrl') || '/';
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,10 +31,8 @@ export default function LoginPage() {
         setError(result.error);
       } else {
         setSuccess(true);
-        // Redirect after a short delay
-        setTimeout(() => {
-          router.push('/profile');
-        }, 2000);
+        // User will be redirected by NextAuth after clicking magic link
+        // Middleware will handle profile completion redirect if needed
       }
     } catch (err) {
       setError('An error occurred. Please try again.');

@@ -51,9 +51,13 @@ export default function Calendar() {
   const [filterCity, setFilterCity] = useState<string>(
     searchParams.get('city') || ''
   );
+  const [filterSource, setFilterSource] = useState<string>(
+    searchParams.get('source') || ''
+  );
   const [sortOption, setSortOption] = useState<string>(
     searchParams.get('sort') || 'date'
   );
+  const [showFilters, setShowFilters] = useState<boolean>(false);
 
   const calendarRef = useRef<FullCalendar>(null);
 
@@ -73,6 +77,9 @@ export default function Calendar() {
       if (filterCity) {
         params.set('city', filterCity);
       }
+      if (filterSource) {
+        params.set('source', filterSource);
+      }
       if (sortOption) {
         params.set('sort', sortOption);
       }
@@ -88,7 +95,7 @@ export default function Calendar() {
     } finally {
       setLoading(false);
     }
-  }, [selectedTags, filterCountry, filterRegion, filterCity, sortOption]);
+  }, [selectedTags, filterCountry, filterRegion, filterCity, filterSource, sortOption]);
 
   // Update URL when filters change (debounced)
   useEffect(() => {
@@ -106,6 +113,9 @@ export default function Calendar() {
       if (filterCity) {
         params.set('city', filterCity);
       }
+      if (filterSource) {
+        params.set('source', filterSource);
+      }
       if (sortOption && sortOption !== 'date') {
         params.set('sort', sortOption);
       }
@@ -116,7 +126,7 @@ export default function Calendar() {
     }, 300); // Debounce URL updates
 
     return () => clearTimeout(timer);
-  }, [selectedTags, filterCountry, filterRegion, filterCity, sortOption, router]);
+  }, [selectedTags, filterCountry, filterRegion, filterCity, filterSource, sortOption, router]);
 
   // Fetch events when filters change
   useEffect(() => {
@@ -296,6 +306,14 @@ export default function Calendar() {
     return Array.from(regions).sort();
   }, [events]);
 
+  const availableSources = useMemo(() => {
+    const sources = new Set<string>();
+    events.forEach((event) => {
+      if (event.source) sources.add(event.source);
+    });
+    return Array.from(sources).sort();
+  }, [events]);
+
   const handleTagToggle = (tag: string) => {
     setSelectedTags((prev) => {
       if (prev.includes(tag)) {
@@ -311,10 +329,11 @@ export default function Calendar() {
     setFilterCountry('');
     setFilterRegion('');
     setFilterCity('');
+    setFilterSource('');
     setSortOption('date');
   };
 
-  const hasActiveFilters = selectedTags.length > 0 || filterCountry || filterRegion || filterCity || (sortOption && sortOption !== 'date');
+  const hasActiveFilters = selectedTags.length > 0 || filterCountry || filterRegion || filterCity || filterSource || (sortOption && sortOption !== 'date');
 
   // Get filter description for subscription
   const getFilterDescription = () => {
@@ -325,6 +344,7 @@ export default function Calendar() {
     if (filterCountry) parts.push(`Country: ${filterCountry}`);
     if (filterRegion) parts.push(`Region: ${filterRegion}`);
     if (filterCity) parts.push(`City: ${filterCity}`);
+    if (filterSource) parts.push(`Source: ${filterSource}`);
     return parts.join(' • ') || 'Current filter';
   };
 
@@ -334,6 +354,7 @@ export default function Calendar() {
       country: filterCountry || undefined,
       region: filterRegion || undefined,
       city: filterCity || undefined,
+      source: filterSource || undefined,
     };
 
     const res = await fetch('/api/subscriptions/custom/filter', {
@@ -365,105 +386,134 @@ export default function Calendar() {
 
   return (
     <div className="space-y-6">
-        {/* Filter UI */}
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h2>
+        {/* Filter Button and Active Filters (always visible) */}
+        <div className="flex items-center justify-between gap-4">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            <svg
+              className={`h-5 w-5 transition-transform ${showFilters ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+            Filters
             {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              <span className="ml-1 rounded-full bg-purple-600 px-2 py-0.5 text-xs text-white">
+                {selectedTags.length + (filterCountry ? 1 : 0) + (filterRegion ? 1 : 0) + (filterCity ? 1 : 0) + (filterSource ? 1 : 0) + (sortOption !== 'date' ? 1 : 0)}
+              </span>
+            )}
+          </button>
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
+
+        {/* Active filter chips (always visible when filters are active) */}
+        {hasActiveFilters && (
+          <div className="flex flex-wrap gap-2">
+            {selectedTags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200"
               >
-                Clear all
-              </button>
+                Tag: {tag}
+                <button
+                  onClick={() => handleTagToggle(tag)}
+                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {filterCountry && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                Country: {filterCountry}
+                <button
+                  onClick={() => setFilterCountry('')}
+                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {filterRegion && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                Region: {filterRegion}
+                <button
+                  onClick={() => setFilterRegion('')}
+                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {filterCity && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                City: {filterCity}
+                <button
+                  onClick={() => setFilterCity('')}
+                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {filterSource && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                Source: {filterSource}
+                <button
+                  onClick={() => setFilterSource('')}
+                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {sortOption && sortOption !== 'date' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                Sort: {sortOption}
+                <button
+                  onClick={() => setSortOption('date')}
+                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                >
+                  ×
+                </button>
+              </span>
             )}
           </div>
+        )}
 
-          {/* Active filter chips */}
-          {hasActiveFilters && (
-            <div className="mb-4 space-y-3">
-              <div className="flex flex-wrap gap-2">
-              {selectedTags.map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                >
-                  Tag: {tag}
-                  <button
-                    onClick={() => handleTagToggle(tag)}
-                    className="hover:text-blue-600 dark:hover:text-blue-300"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-              {filterCountry && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                  Country: {filterCountry}
-                  <button
-                    onClick={() => setFilterCountry('')}
-                    className="hover:text-blue-600 dark:hover:text-blue-300"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-              {filterRegion && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                  Region: {filterRegion}
-                  <button
-                    onClick={() => setFilterRegion('')}
-                    className="hover:text-blue-600 dark:hover:text-blue-300"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-              {filterCity && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                  City: {filterCity}
-                  <button
-                    onClick={() => setFilterCity('')}
-                    className="hover:text-blue-600 dark:hover:text-blue-300"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-              {sortOption && sortOption !== 'date' && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                  Sort: {sortOption}
-                  <button
-                    onClick={() => setSortOption('date')}
-                    className="hover:text-blue-600 dark:hover:text-blue-300"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-              </div>
-              
-              {/* Subscribe to Filter button */}
-              {status === 'authenticated' && (
-                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                  <button
-                    onClick={() => setShowSubscribeModal(true)}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Subscribe to this Filter
-                  </button>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Get a calendar feed that automatically updates with events matching these filters
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+        {/* Subscribe to Filter button (always visible when filters are active) */}
+        {hasActiveFilters && status === 'authenticated' && (
+          <div className="pt-2">
+            <button
+              onClick={() => setShowSubscribeModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold text-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Subscribe to this Filter
+            </button>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Get a calendar feed that automatically updates with events matching these filters
+            </p>
+          </div>
+        )}
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/* Collapsible Filter UI */}
+        {showFilters && (
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
             {/* Tags filter */}
             <div>
               <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-gray-100">
@@ -533,6 +583,24 @@ export default function Calendar() {
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
               />
             </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-gray-800 dark:text-gray-100">
+                Source
+              </label>
+              <select
+                value={filterSource}
+                onChange={(e) => setFilterSource(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+              >
+                <option value="">All Sources</option>
+                {availableSources.map((source) => (
+                  <option key={source} value={source}>
+                    {source}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Sort option */}
@@ -550,7 +618,8 @@ export default function Calendar() {
               <option value="location">Location</option>
             </select>
           </div>
-        </div>
+          </div>
+        )}
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 text-sm font-medium shadow-sm dark:border-gray-700 dark:bg-gray-900">

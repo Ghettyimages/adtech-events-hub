@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Event } from '@prisma/client';
+import { Event, Tag } from '@prisma/client';
 import { format } from 'date-fns';
+import { PREDEFINED_TAGS } from '@/lib/extractor/tagExtractor';
+import TagSelector from '@/components/TagSelector';
+import { getDisplayName } from '@/lib/tags';
 
 interface MonitoredUrl {
   id: string;
@@ -23,6 +26,7 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [eventViewMode, setEventViewMode] = useState<'pending' | 'published'>('pending');
+  const [adminTab, setAdminTab] = useState<'events' | 'tags'>('events');
   
   // URL scraping state
   const [scrapeUrl, setScrapeUrl] = useState('');
@@ -37,13 +41,134 @@ export default function AdminPage() {
   // Edit event state
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [editFormData, setEditFormData] = useState<Partial<Event>>({});
+  const [editSelectedTags, setEditSelectedTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Tags management state
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [editingTag, setEditingTag] = useState<Tag | null>(null);
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [tagFormData, setTagFormData] = useState({
+    name: '',
+    displayName: '',
+    description: '',
+    color: '',
+  });
+  const [sortBy, setSortBy] = useState<'name' | 'usage' | 'created'>('name');
 
   useEffect(() => {
     fetchPendingEvents();
     fetchPublishedEvents();
     fetchMonitoredUrls();
   }, []);
+
+  // Fetch tags when Tags tab is active
+  useEffect(() => {
+    if (adminTab === 'tags') {
+      fetchTags();
+    }
+  }, [adminTab, sortBy]);
+
+  const fetchTags = async () => {
+    setTagsLoading(true);
+    try {
+      const res = await fetch(`/api/tags?sort=${sortBy}`);
+      if (!res.ok) throw new Error('Failed to fetch tags');
+      const data = await res.json();
+      setTags(data.tags || []);
+    } catch (err: any) {
+      setFeedback('error', err.message || 'Failed to fetch tags');
+    } finally {
+      setTagsLoading(false);
+    }
+  };
+
+  const handleCreateTag = () => {
+    setEditingTag(null);
+    setTagFormData({
+      name: '',
+      displayName: '',
+      description: '',
+      color: '',
+    });
+    setShowTagModal(true);
+  };
+
+  const handleEditTag = (tag: Tag) => {
+    setEditingTag(tag);
+    setTagFormData({
+      name: tag.name,
+      displayName: tag.displayName || '',
+      description: tag.description || '',
+      color: tag.color || '',
+    });
+    setShowTagModal(true);
+  };
+
+  const handleSaveTag = async () => {
+    if (!tagFormData.name.trim()) {
+      setFeedback('error', 'Tag name is required');
+      return;
+    }
+
+    try {
+      const url = editingTag ? `/api/tags/${editingTag.id}` : '/api/tags';
+      const method = editingTag ? 'PATCH' : 'POST';
+      
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: tagFormData.name.trim(),
+          displayName: tagFormData.displayName?.trim() || null,
+          description: tagFormData.description?.trim() || null,
+          color: tagFormData.color?.trim() || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to save tag');
+      }
+
+      await fetchTags();
+      setEditingTag(null);
+      setShowTagModal(false);
+      setTagFormData({ name: '', displayName: '', description: '', color: '' });
+      setFeedback('success', editingTag ? 'Tag updated successfully!' : 'Tag created successfully!');
+    } catch (err: any) {
+      setFeedback('error', err.message || 'Failed to save tag');
+    }
+  };
+
+  const handleDeleteTag = async (tag: Tag) => {
+    if (tag.usageCount > 0) {
+      if (!confirm(`This tag is used by ${tag.usageCount} event(s). Are you sure you want to delete it? This will remove the tag from all events.`)) {
+        return;
+      }
+    } else {
+      if (!confirm(`Are you sure you want to delete the tag "${getDisplayName(tag)}"?`)) {
+        return;
+      }
+    }
+
+    try {
+      const res = await fetch(`/api/tags/${tag.id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to delete tag');
+      }
+
+      await fetchTags();
+      setFeedback('success', 'Tag deleted successfully!');
+    } catch (err: any) {
+      setFeedback('error', err.message || 'Failed to delete tag');
+    }
+  };
 
   const setFeedback = (type: 'success' | 'error', message: string) => {
     if (type === 'success') {
@@ -219,6 +344,20 @@ export default function AdminPage() {
 
   const handleEditEvent = (event: Event) => {
     setEditingEvent(event);
+    
+    // Parse tags from JSON string if present
+    let tagsArray: string[] = [];
+    if (event.tags) {
+      try {
+        const parsed = typeof event.tags === 'string' ? JSON.parse(event.tags) : event.tags;
+        tagsArray = Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        console.error('Failed to parse tags:', e);
+        tagsArray = [];
+      }
+    }
+    setEditSelectedTags(tagsArray);
+    
     setEditFormData({
       title: event.title,
       description: event.description || '',
@@ -228,6 +367,9 @@ export default function AdminPage() {
       end: new Date(event.end).toISOString().slice(0, 16),
       timezone: event.timezone || '',
       source: event.source || '',
+      country: event.country || '',
+      region: event.region || '',
+      city: event.city || '',
     });
   };
 
@@ -276,6 +418,27 @@ export default function AdminPage() {
       if (editFormData.source !== undefined) {
         const trimmed = editFormData.source?.trim();
         updateData.source = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+      
+      // Handle location fields
+      if (editFormData.country !== undefined) {
+        const trimmed = editFormData.country?.trim();
+        updateData.country = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+      if (editFormData.region !== undefined) {
+        const trimmed = editFormData.region?.trim();
+        updateData.region = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+      if (editFormData.city !== undefined) {
+        const trimmed = editFormData.city?.trim();
+        updateData.city = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+      
+      // Handle tags - send as array, API will convert to JSON string
+      if (editSelectedTags.length > 0) {
+        updateData.tags = editSelectedTags;
+      } else {
+        updateData.tags = null;
       }
 
       // Handle dates - datetime-local format is "YYYY-MM-DDTHH:mm"
@@ -667,34 +830,63 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Events View Toggle */}
-      <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-          {eventViewMode === 'pending' ? '⏳ Pending Events' : '✅ Published Events'}
-        </h2>
-        <div className="flex gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+      {/* Main Tab Navigation */}
+      <div className="mb-6">
+        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 text-sm font-medium shadow-sm dark:border-gray-700 dark:bg-gray-900">
           <button
-            onClick={() => setEventViewMode('pending')}
-            className={`px-4 py-2 rounded-md text-sm font-semibold transition ${
-              eventViewMode === 'pending'
-                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+            onClick={() => setAdminTab('events')}
+            className={`rounded-md px-4 py-2 transition ${
+              adminTab === 'events'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
             }`}
           >
-            Pending ({pendingEvents.length})
+            📅 Events
           </button>
           <button
-            onClick={() => setEventViewMode('published')}
-            className={`px-4 py-2 rounded-md text-sm font-semibold transition ${
-              eventViewMode === 'published'
-                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+            onClick={() => setAdminTab('tags')}
+            className={`rounded-md px-4 py-2 transition ${
+              adminTab === 'tags'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
             }`}
           >
-            Published ({publishedEvents.length})
+            🏷️ Tags
           </button>
         </div>
       </div>
+
+      {/* Events Tab Content */}
+      {adminTab === 'events' && (
+        <>
+          {/* Events View Toggle */}
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
+              {eventViewMode === 'pending' ? '⏳ Pending Events' : '✅ Published Events'}
+            </h2>
+            <div className="flex gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+              <button
+                onClick={() => setEventViewMode('pending')}
+                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${
+                  eventViewMode === 'pending'
+                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                Pending ({pendingEvents.length})
+              </button>
+              <button
+                onClick={() => setEventViewMode('published')}
+                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${
+                  eventViewMode === 'published'
+                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                Published ({publishedEvents.length})
+              </button>
+            </div>
+          </div>
 
       {/* Published Events Section */}
       {eventViewMode === 'published' && (
@@ -832,6 +1024,28 @@ export default function AdminPage() {
                             <strong>Source:</strong> {event.source}
                           </p>
                         )}
+                        {event.tags && (() => {
+                          try {
+                            const tagsArray = typeof event.tags === 'string' ? JSON.parse(event.tags) : event.tags;
+                            return Array.isArray(tagsArray) && tagsArray.length > 0 ? (
+                              <p>
+                                <strong>Tags:</strong>{' '}
+                                <span className="flex flex-wrap gap-1 mt-1">
+                                  {tagsArray.map((tag: string) => (
+                                    <span
+                                      key={tag}
+                                      className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </span>
+                              </p>
+                            ) : null;
+                          } catch {
+                            return null;
+                          }
+                        })()}
                         {event.url && (
                           <p>
                             <strong>URL:</strong>{' '}
@@ -885,6 +1099,248 @@ export default function AdminPage() {
           )}
         </div>
       )}
+        </>
+      )}
+
+      {/* Tags Tab Content */}
+      {adminTab === 'tags' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">🏷️ Tag Management</h2>
+            <div className="flex gap-3">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'name' | 'usage' | 'created')}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+              >
+                <option value="name">Sort by Name</option>
+                <option value="usage">Sort by Usage</option>
+                <option value="created">Sort by Created Date</option>
+              </select>
+              <button
+                onClick={handleCreateTag}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+              >
+                + Create New Tag
+              </button>
+            </div>
+          </div>
+
+          {tagsLoading ? (
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
+              <p className="text-gray-600 dark:text-gray-400">Loading tags...</p>
+            </div>
+          ) : tags.length === 0 ? (
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
+              <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">No tags found.</p>
+              <button
+                onClick={handleCreateTag}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+              >
+                Create Your First Tag
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Tag Name
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Display Name
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Usage Count
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Description
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {tags.map((tag) => (
+                      <tr key={tag.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/60">
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            {tag.color && (
+                              <span
+                                className="h-4 w-4 rounded-full"
+                                style={{ backgroundColor: tag.color }}
+                              />
+                            )}
+                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                              {tag.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                          {tag.displayName || '—'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                          <span className={`font-semibold ${tag.usageCount > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`}>
+                            {tag.usageCount}
+                          </span>
+                          <span className="text-gray-500 ml-1">event(s)</span>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate">
+                          {tag.description || '—'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => handleEditTag(tag)}
+                              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-xs font-semibold"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTag(tag)}
+                              className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-xs font-semibold"
+                              disabled={tag.usageCount > 0}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Edit/Create Tag Modal */}
+      {showTagModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {editingTag ? 'Edit Tag' : 'Create New Tag'}
+                </h2>
+                <button
+                  onClick={() => {
+                    setEditingTag(null);
+                    setShowTagModal(false);
+                    setTagFormData({ name: '', displayName: '', description: '', color: '' });
+                  }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSaveTag();
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Tag Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={tagFormData.name}
+                    onChange={(e) => setTagFormData({ ...tagFormData, name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    required
+                    placeholder="e.g., adtech, programmatic"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Will be normalized (lowercase, hyphenated)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Display Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={tagFormData.displayName}
+                    onChange={(e) => setTagFormData({ ...tagFormData, displayName: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    placeholder="e.g., AdTech"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Friendly name for display (uses tag name if not set)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Description (Optional)
+                  </label>
+                  <textarea
+                    value={tagFormData.description}
+                    onChange={(e) => setTagFormData({ ...tagFormData, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    placeholder="Describe what this tag represents..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Color (Optional)
+                  </label>
+                  <div className="flex gap-3 items-center">
+                    <input
+                      type="color"
+                      value={tagFormData.color || '#3b82f6'}
+                      onChange={(e) => setTagFormData({ ...tagFormData, color: e.target.value })}
+                      className="h-10 w-20 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={tagFormData.color}
+                      onChange={(e) => setTagFormData({ ...tagFormData, color: e.target.value })}
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                      placeholder="#3b82f6"
+                      pattern="^#[0-9A-Fa-f]{6}$"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Hex color code for tag display (e.g., #3b82f6)
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4 border-t">
+                  <button
+                    type="submit"
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+                  >
+                    {editingTag ? 'Update Tag' : 'Create Tag'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingTag(null);
+                      setShowTagModal(false);
+                      setTagFormData({ name: '', displayName: '', description: '', color: '' });
+                    }}
+                    className="px-6 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition font-semibold"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Event Modal */}
       {editingEvent && (
@@ -897,6 +1353,7 @@ export default function AdminPage() {
                   onClick={() => {
                     setEditingEvent(null);
                     setEditFormData({});
+                    setEditSelectedTags([]);
                   }}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
                 >
@@ -1015,6 +1472,56 @@ export default function AdminPage() {
                   </div>
                 </div>
 
+                {/* Tags Section */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Tags
+                  </label>
+                  <TagSelector
+                    selectedTags={editSelectedTags}
+                    onChange={setEditSelectedTags}
+                    placeholder="Select tags..."
+                    allowCustom={true}
+                  />
+                </div>
+
+                {/* Structured Location Fields */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Country
+                    </label>
+                    <input
+                      type="text"
+                      value={editFormData.country || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, country: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Region/State
+                    </label>
+                    <input
+                      type="text"
+                      value={editFormData.region || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, region: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      City
+                    </label>
+                    <input
+                      type="text"
+                      value={editFormData.city || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                </div>
+
                 <div className="flex gap-3 pt-4 border-t">
                   <button
                     type="submit"
@@ -1041,6 +1548,7 @@ export default function AdminPage() {
                     onClick={() => {
                       setEditingEvent(null);
                       setEditFormData({});
+                      setEditSelectedTags([]);
                     }}
                     className="px-6 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition font-semibold"
                   >

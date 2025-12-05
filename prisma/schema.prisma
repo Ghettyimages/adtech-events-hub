@@ -29,10 +29,13 @@ model Event {
   status      String   @default("PUBLISHED") // PUBLISHED | PENDING
   // Counter cache
   subscribers Int      @default(0)
+  // Track who submitted the event
+  submittedBy String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   // relations
   follows     EventFollow[]
+  submitter   User?    @relation("SubmittedEvents", fields: [submittedBy], references: [id])
 }
 
 model MonitoredUrl {
@@ -71,6 +74,8 @@ model User {
   // Subscription relations
   subscriptions Subscription[]
   eventFollows  EventFollow[]
+  // Events submitted by this user
+  submittedEvents Event[] @relation("SubmittedEvents")
 }
 
 model Account {
@@ -129,4 +134,17 @@ model EventFollow {
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   @@unique([userId, eventId]) // a user follows an event at most once
   @@index([eventId])
+}
+
+model Tag {
+  id          String   @id @default(cuid())
+  name        String   @unique  // Normalized tag name (lowercase, hyphenated)
+  displayName String?  // Optional friendly display name
+  description String?  // Optional description
+  color       String?  // Optional color for UI (hex code)
+  usageCount  Int      @default(0)  // Cache count of events using this tag
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([name])
 }

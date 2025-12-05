@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import Calendar from '@/components/Calendar';
-import { buildGoogleCalendarSubscribeUrl } from '@/lib/events';
+import HomePageActions from '@/components/HomePageActions';
 
 function CalendarFallback() {
   return (
@@ -12,8 +12,6 @@ function CalendarFallback() {
 
 export default function HomePage() {
   const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
-  const feedUrl = `${siteUrl}/api/feed`;
-  const subscribeUrl = buildGoogleCalendarSubscribeUrl(feedUrl);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -24,23 +22,7 @@ export default function HomePage() {
         <p className="text-lg text-gray-600 dark:text-gray-400 mb-6">
           Discover upcoming conferences, webinars, and networking events in the AdTech ecosystem.
         </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-          <a
-            href={subscribeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold"
-          >
-            📆 Subscribe in Google Calendar
-          </a>
-          <a
-            href="/api/feed"
-            download="adtech-events.ics"
-            className="inline-flex items-center px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-semibold"
-          >
-            ⬇️ Download iCal Feed
-          </a>
-        </div>
+        <HomePageActions siteUrl={siteUrl} />
       </div>
 
       <Suspense fallback={<CalendarFallback />}>

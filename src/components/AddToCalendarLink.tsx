@@ -1,6 +1,8 @@
 'use client';
 
 import { Event } from '@prisma/client';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { buildGoogleCalendarUrl } from '@/lib/events';
 import ical, { ICalCalendar } from 'ical-generator';
 
@@ -9,6 +11,8 @@ interface AddToCalendarLinkProps {
 }
 
 export default function AddToCalendarLink({ event }: AddToCalendarLinkProps) {
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const googleCalUrl = buildGoogleCalendarUrl(event);
 
   const downloadICS = () => {
@@ -33,22 +37,46 @@ export default function AddToCalendarLink({ event }: AddToCalendarLinkProps) {
     document.body.removeChild(link);
   };
 
+  // Show login prompt if not authenticated
+  if (status === 'unauthenticated') {
+    return (
+      <button
+        onClick={() => router.push(`/login?callbackUrl=${encodeURIComponent(window.location.href)}`)}
+        className="w-full bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 transition font-semibold"
+      >
+        Sign in to Add to Calendar
+      </button>
+    );
+  }
+
+  // Show buttons only if authenticated
+  if (status === 'authenticated' && session) {
+    return (
+      <div className="flex flex-col sm:flex-row gap-3">
+        <a
+          href={googleCalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+        >
+          📅 Add to Google Calendar
+        </a>
+        <button
+          onClick={downloadICS}
+          className="inline-flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
+        >
+          ⬇️ Download .ics
+        </button>
+      </div>
+    );
+  }
+
+  // Loading state
   return (
     <div className="flex flex-col sm:flex-row gap-3">
-      <a
-        href={googleCalUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
-      >
-        📅 Add to Google Calendar
-      </a>
-      <button
-        onClick={downloadICS}
-        className="inline-flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
-      >
-        ⬇️ Download .ics
-      </button>
+      <div className="inline-flex items-center justify-center px-4 py-2 bg-gray-300 text-gray-600 rounded-lg font-semibold">
+        Loading...
+      </div>
     </div>
   );
 }

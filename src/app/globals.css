@@ -27,3 +27,38 @@ body {
     text-wrap: balance;
   }
 }
+
+/* FullCalendar day header styling - make days of the week more visible */
+.fc-col-header-cell {
+  background-color: #1f2937 !important;
+  color: #f9fafb !important;
+  font-weight: 600 !important;
+  padding: 0.75rem 0.5rem !important;
+}
+
+.fc-col-header-cell-cushion {
+  color: #f9fafb !important;
+  font-weight: 600 !important;
+}
+
+/* Dark mode support for calendar headers - class-based (Tailwind) */
+.dark .fc-col-header-cell {
+  background-color: #f9fafb !important;
+  color: #1f2937 !important;
+}
+
+.dark .fc-col-header-cell-cushion {
+  color: #1f2937 !important;
+}
+
+/* Dark mode support for calendar headers - media query fallback */
+@media (prefers-color-scheme: dark) {
+  .fc-col-header-cell {
+    background-color: #f9fafb !important;
+    color: #1f2937 !important;
+  }
+
+  .fc-col-header-cell-cushion {
+    color: #1f2937 !important;
+  }
+}

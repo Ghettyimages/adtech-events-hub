@@ -101,7 +101,31 @@ export async function PATCH(
         ? null 
         : validatedData.source;
     }
+    if (validatedData.country !== undefined) {
+      updateData.country = validatedData.country === null || validatedData.country === '' 
+        ? null 
+        : validatedData.country;
+    }
+    if (validatedData.region !== undefined) {
+      updateData.region = validatedData.region === null || validatedData.region === '' 
+        ? null 
+        : validatedData.region;
+    }
+    if (validatedData.city !== undefined) {
+      updateData.city = validatedData.city === null || validatedData.city === '' 
+        ? null 
+        : validatedData.city;
+    }
     if (validatedData.status !== undefined) updateData.status = validatedData.status;
+    
+    // Handle tags - convert array to JSON string if provided
+    if (validatedData.tags !== undefined) {
+      if (Array.isArray(validatedData.tags) && validatedData.tags.length > 0) {
+        updateData.tags = JSON.stringify(validatedData.tags);
+      } else {
+        updateData.tags = null;
+      }
+    }
 
     // Handle date updates
     if (validatedData.start !== undefined) {

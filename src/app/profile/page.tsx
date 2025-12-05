@@ -17,6 +17,7 @@ interface ProfileData {
   consentCalendar: boolean;
   feedToken: string | null;
   termsAcceptedAt: string | null;
+  isProfileComplete?: boolean;
 }
 
 export default function ProfilePage() {
@@ -27,6 +28,7 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [wasIncomplete, setWasIncomplete] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -55,6 +57,7 @@ export default function ProfilePage() {
       if (response.ok) {
         const data = await response.json();
         setProfile(data);
+        setWasIncomplete(!data.isProfileComplete);
         setFormData({
           name: data.name || '',
           company: data.company || '',
@@ -76,6 +79,32 @@ export default function ProfilePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Client-side validation for required fields on first visit
+    const isFirstVisit = !profile?.isProfileComplete;
+    if (isFirstVisit) {
+      if (!formData.name?.trim()) {
+        setError('Name is required');
+        return;
+      }
+      if (!formData.company?.trim()) {
+        setError('Company is required');
+        return;
+      }
+      if (!formData.title?.trim()) {
+        setError('Title is required');
+        return;
+      }
+      if (!formData.companyEmail?.trim()) {
+        setError('Company Email is required');
+        return;
+      }
+      if (!formData.location?.trim()) {
+        setError('Location is required');
+        return;
+      }
+    }
+
     setIsSaving(true);
     setError('');
     setSuccess(false);
@@ -93,7 +122,15 @@ export default function ProfilePage() {
         const updatedProfile = await response.json();
         setProfile(updatedProfile);
         setSuccess(true);
-        setTimeout(() => setSuccess(false), 3000);
+        
+        // If this was a first-time completion, redirect to home page after a short delay
+        if (wasIncomplete && updatedProfile.isProfileComplete) {
+          setTimeout(() => {
+            router.push('/');
+          }, 2000);
+        } else {
+          setTimeout(() => setSuccess(false), 3000);
+        }
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to update profile');
@@ -134,10 +171,23 @@ export default function ProfilePage() {
           Your Profile
         </h1>
 
+        {!profile?.isProfileComplete && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+            <p className="text-blue-800 dark:text-blue-200 font-semibold">
+              Please complete your profile to continue
+            </p>
+            <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+              All fields marked with * are required.
+            </p>
+          </div>
+        )}
+
         {success && (
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-6">
             <p className="text-green-800 dark:text-green-200">
-              Profile updated successfully!
+              {wasIncomplete && profile?.isProfileComplete
+                ? 'Profile completed successfully! Redirecting to home page...'
+                : 'Profile updated successfully!'}
             </p>
           </div>
         )}
@@ -170,7 +220,7 @@ export default function ProfilePage() {
                 htmlFor="name"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
               >
-                Name
+                Name {!profile?.isProfileComplete && <span className="text-red-500">*</span>}
               </label>
               <input
                 id="name"
@@ -178,6 +228,7 @@ export default function ProfilePage() {
                 type="text"
                 value={formData.name}
                 onChange={handleChange}
+                required={!profile?.isProfileComplete}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                 placeholder="Your full name"
               />
@@ -188,7 +239,7 @@ export default function ProfilePage() {
                 htmlFor="company"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
               >
-                Company
+                Company {!profile?.isProfileComplete && <span className="text-red-500">*</span>}
               </label>
               <input
                 id="company"
@@ -196,6 +247,7 @@ export default function ProfilePage() {
                 type="text"
                 value={formData.company}
                 onChange={handleChange}
+                required={!profile?.isProfileComplete}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                 placeholder="Your company name"
               />
@@ -206,7 +258,7 @@ export default function ProfilePage() {
                 htmlFor="title"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
               >
-                Title
+                Title {!profile?.isProfileComplete && <span className="text-red-500">*</span>}
               </label>
               <input
                 id="title"
@@ -214,6 +266,7 @@ export default function ProfilePage() {
                 type="text"
                 value={formData.title}
                 onChange={handleChange}
+                required={!profile?.isProfileComplete}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                 placeholder="Your job title"
               />
@@ -224,7 +277,7 @@ export default function ProfilePage() {
                 htmlFor="companyEmail"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
               >
-                Company Email
+                Company Email {!profile?.isProfileComplete && <span className="text-red-500">*</span>}
               </label>
               <input
                 id="companyEmail"
@@ -232,6 +285,7 @@ export default function ProfilePage() {
                 type="email"
                 value={formData.companyEmail}
                 onChange={handleChange}
+                required={!profile?.isProfileComplete}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                 placeholder="your.company@example.com"
               />
@@ -242,7 +296,7 @@ export default function ProfilePage() {
                 htmlFor="location"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
               >
-                Location
+                Location {!profile?.isProfileComplete && <span className="text-red-500">*</span>}
               </label>
               <input
                 id="location"
@@ -250,6 +304,7 @@ export default function ProfilePage() {
                 type="text"
                 value={formData.location}
                 onChange={handleChange}
+                required={!profile?.isProfileComplete}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                 placeholder="City, State/Country"
               />
@@ -321,12 +376,14 @@ export default function ProfilePage() {
               >
                 {isSaving ? 'Saving...' : 'Save Profile'}
               </button>
-              <Link
-                href="/"
-                className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition font-semibold text-center"
-              >
-                Cancel
-              </Link>
+              {profile?.isProfileComplete && (
+                <Link
+                  href="/"
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition font-semibold text-center"
+                >
+                  Cancel
+                </Link>
+              )}
             </div>
           </form>
         </div>

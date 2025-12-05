@@ -101,20 +101,25 @@ export default function EventList({ events, onSelect, emptyStateMessage }: Event
                   )}
                 </td>
                 <td className="px-4 py-4 whitespace-normal text-sm text-gray-700 dark:text-gray-300">
-                  {event.tags && event.tags.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {event.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-gray-400 dark:text-gray-500">—</span>
-                  )}
+                  {event.tags && (() => {
+                    try {
+                      const tagsArray = typeof event.tags === 'string' ? JSON.parse(event.tags) : event.tags;
+                      return Array.isArray(tagsArray) && tagsArray.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {tagsArray.map((tag: string) => (
+                            <span
+                              key={tag}
+                              className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null;
+                    } catch {
+                      return <span className="text-gray-400 dark:text-gray-500">—</span>;
+                    }
+                  })() || <span className="text-gray-400 dark:text-gray-500">—</span>}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                   {event.source || 'N/A'}

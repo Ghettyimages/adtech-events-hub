@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { CreateEventInput } from '@/lib/validation';
-import { PREDEFINED_TAGS } from '@/lib/extractor/tagExtractor';
 import { parseLocationString } from '@/lib/extractor/locationExtractor';
+import TagSelector from './TagSelector';
 
 const US_STATES = [
   { value: 'AL', label: 'Alabama' },
@@ -82,6 +84,8 @@ const COUNTRIES = [
 ];
 
 export default function SubmitEventForm() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const [formData, setFormData] = useState<CreateEventInput>({
     title: '',
     description: '',
@@ -98,7 +102,6 @@ export default function SubmitEventForm() {
   });
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [customTag, setCustomTag] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,29 +128,16 @@ export default function SubmitEventForm() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleTagToggle = (tag: string) => {
-    setSelectedTags((prev) => {
-      if (prev.includes(tag)) {
-        return prev.filter((t) => t !== tag);
-      } else {
-        return [...prev, tag];
-      }
-    });
-  };
-
-  const handleAddCustomTag = () => {
-    if (customTag.trim() && !selectedTags.includes(customTag.trim().toLowerCase())) {
-      setSelectedTags((prev) => [...prev, customTag.trim().toLowerCase()]);
-      setCustomTag('');
-    }
-  };
-
-  const handleRemoveTag = (tag: string) => {
-    setSelectedTags((prev) => prev.filter((t) => t !== tag));
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Check authentication
+    if (status !== 'authenticated' || !session) {
+      router.push(`/login?callbackUrl=${encodeURIComponent('/submit')}`);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSuccess(false);
@@ -177,7 +167,6 @@ export default function SubmitEventForm() {
 
       setSuccess(true);
       setSelectedTags([]);
-      setCustomTag('');
       setFormData({
         title: '',
         description: '',
@@ -198,6 +187,35 @@ export default function SubmitEventForm() {
       setLoading(false);
     }
   };
+
+  // Show login prompt if not authenticated
+  if (status === 'unauthenticated') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-blue-50 border border-blue-200 text-blue-800 px-6 py-4 rounded-lg mb-6">
+          <p className="font-semibold mb-2">Please sign in to submit events</p>
+          <p className="text-sm mb-4">
+            Login to submit events, subscribe to The Media Calendar, add events to your calendar and customize your event feeds.
+          </p>
+          <button
+            onClick={() => router.push(`/login?callbackUrl=${encodeURIComponent('/submit')}`)}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition font-semibold"
+          >
+            Sign in to Submit
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while checking auth
+  if (status === 'loading') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="text-center py-8 text-gray-600">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -355,68 +373,12 @@ export default function SubmitEventForm() {
           <label className="block text-sm font-semibold mb-2">
             Tags * <span className="text-xs font-normal text-gray-500">(Select at least one)</span>
           </label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {PREDEFINED_TAGS.map((tag) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => handleTagToggle(tag)}
-                className={`px-3 py-1 rounded-full text-sm font-medium transition ${
-                  selectedTags.includes(tag)
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-                }`}
-              >
-                {selectedTags.includes(tag) && '✓ '}
-                {tag}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={customTag}
-              onChange={(e) => setCustomTag(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddCustomTag();
-                }
-              }}
-              placeholder="Add custom tag"
-              maxLength={50}
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
-            />
-            <button
-              type="button"
-              onClick={handleAddCustomTag}
-              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition"
-            >
-              Add
-            </button>
-          </div>
-          {selectedTags.length > 0 && (
-            <div className="mt-2">
-              <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Selected tags:</p>
-              <div className="flex flex-wrap gap-2">
-                {selectedTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded text-sm"
-                  >
-                    {tag}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveTag(tag)}
-                      className="hover:text-blue-600 dark:hover:text-blue-300"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          <TagSelector
+            selectedTags={selectedTags}
+            onChange={setSelectedTags}
+            placeholder="Select tags..."
+            allowCustom={true}
+          />
         </div>
 
         <div>

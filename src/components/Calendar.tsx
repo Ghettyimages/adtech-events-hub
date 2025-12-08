@@ -736,7 +736,6 @@ export default function Calendar() {
               height="auto"
               eventColor="#3b82f6"
               eventDisplay="block"
-              noEventsContent="No events scheduled"
             />
           </div>
         ) : (

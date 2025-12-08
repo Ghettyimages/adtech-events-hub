@@ -19,6 +19,20 @@ interface MonitoredUrl {
   updatedAt: Date;
 }
 
+interface EventFormData {
+  title?: string;
+  description?: string;
+  url?: string;
+  location?: string;
+  start?: string;    // datetime-local formatted string
+  end?: string;      // datetime-local formatted string
+  timezone?: string;
+  source?: string;
+  country?: string;
+  region?: string;
+  city?: string;
+}
+
 export default function AdminPage() {
   const [pendingEvents, setPendingEvents] = useState<Event[]>([]);
   const [publishedEvents, setPublishedEvents] = useState<Event[]>([]);
@@ -40,7 +54,7 @@ export default function AdminPage() {
 
   // Edit event state
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
-  const [editFormData, setEditFormData] = useState<Partial<Event>>({});
+  const [editFormData, setEditFormData] = useState<EventFormData>({});
   const [editSelectedTags, setEditSelectedTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 

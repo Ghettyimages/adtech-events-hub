@@ -72,9 +72,13 @@ export const authOptions: NextAuthOptions = {
         } else if (process.env.NODE_ENV === 'development') {
           // In development without email config, just log the link
           // This allows testing without setting up email
+          console.log('\n⚠️  Email server not configured. Magic link:', url);
+          console.log('📋 Set EMAIL_SERVER_HOST, EMAIL_SERVER_USER, and EMAIL_SERVER_PASSWORD to send emails\n');
         } else {
-          // In production without email config, throw an error
-          throw new Error('Email server not configured. Please set EMAIL_SERVER_HOST, EMAIL_SERVER_USER, and EMAIL_SERVER_PASSWORD environment variables.');
+          // In production without email config, throw an error with a clear message
+          const error = new Error('Email server not configured');
+          console.error('❌ Email authentication failed: Email server not configured. Set EMAIL_SERVER_HOST, EMAIL_SERVER_USER, and EMAIL_SERVER_PASSWORD environment variables.');
+          throw error;
         }
       },
     }),

@@ -111,7 +111,7 @@ export async function upsertEventToGoogleCalendar(
       const { credentials } = await auth.refreshAccessToken();
       
       // Retry with new token
-      const newCalendar = getCalendarClient(credentials.access_token!, credentials.refresh_token);
+      const newCalendar = getCalendarClient(credentials.access_token!, credentials.refresh_token ?? undefined);
       
       const existingEvents = await newCalendar.events.list({
         calendarId,
@@ -175,7 +175,7 @@ export async function deleteEventFromGoogleCalendar(
       const auth = getGoogleAuthClient(accessToken, refreshToken);
       const { credentials } = await auth.refreshAccessToken();
       
-      const newCalendar = getCalendarClient(credentials.access_token!, credentials.refresh_token);
+      const newCalendar = getCalendarClient(credentials.access_token!, credentials.refresh_token ?? undefined);
       const existingEvents = await newCalendar.events.list({
         calendarId,
         iCalUID,

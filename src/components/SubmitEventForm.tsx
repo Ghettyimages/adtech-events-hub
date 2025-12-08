@@ -288,7 +288,7 @@ export default function SubmitEventForm() {
             type="text"
             id="location"
             name="location"
-            value={formData.location}
+            value={formData.location || ''}
             onChange={handleChange}
             maxLength={200}
             placeholder="e.g., New York, NY or Virtual"
@@ -389,7 +389,7 @@ export default function SubmitEventForm() {
             type="url"
             id="url"
             name="url"
-            value={formData.url}
+            value={formData.url || ''}
             onChange={handleChange}
             placeholder="https://example.com/event"
             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
@@ -403,7 +403,7 @@ export default function SubmitEventForm() {
           <textarea
             id="description"
             name="description"
-            value={formData.description}
+            value={formData.description || ''}
             onChange={handleChange}
             rows={5}
             maxLength={2000}
@@ -421,7 +421,7 @@ export default function SubmitEventForm() {
               type="text"
               id="timezone"
               name="timezone"
-              value={formData.timezone}
+              value={formData.timezone || ''}
               onChange={handleChange}
               placeholder="America/New_York"
               maxLength={50}
@@ -437,7 +437,7 @@ export default function SubmitEventForm() {
               type="text"
               id="source"
               name="source"
-              value={formData.source}
+              value={formData.source || ''}
               onChange={handleChange}
               placeholder="e.g., Beeler.Tech, IAB"
               maxLength={100}

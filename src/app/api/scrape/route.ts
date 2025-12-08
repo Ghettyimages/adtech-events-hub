@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const filteredEvents = skipPastEvents
       ? normalizationResult.events.filter((event) => {
-          const endDate = new Date(event.end || event.start);
+          const endDate = new Date(event.end || event.start || "");
           return !isNaN(endDate.getTime()) && endDate >= now;
         })
       : normalizationResult.events;

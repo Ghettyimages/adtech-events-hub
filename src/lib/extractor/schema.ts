@@ -10,6 +10,7 @@ export type ExtractedEvent = {
   url?: string;
   description?: string;
   source?: string;
+  timezone?: string;
   date_status: 'confirmed' | 'tbd';
   evidence?: string;
   evidence_context?: string;

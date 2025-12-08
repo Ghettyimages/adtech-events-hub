@@ -4,6 +4,9 @@ import type { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { prisma } from '@/lib/db';
 
+// Public routes that don't require authentication
+const publicRoutes = ['/', '/submit', '/login', '/privacy', '/terms'];
+
 export default withAuth(
   async function middleware(req: NextRequest) {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -56,7 +59,17 @@ export default withAuth(
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ token, req }) => {
+        const pathname = req.nextUrl.pathname;
+        
+        // Allow public routes without authentication
+        if (publicRoutes.includes(pathname)) {
+          return true;
+        }
+        
+        // For all other routes, require authentication
+        return !!token;
+      },
     },
   }
 );

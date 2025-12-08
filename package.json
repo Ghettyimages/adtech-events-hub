@@ -24,7 +24,7 @@
     "date-fns": "^3.0.0",
     "googleapis": "^166.0.0",
     "ical-generator": "^7.0.0",
-    "next": "^16.0.6",
+    "next": "^16.0.7",
     "next-auth": "^4.24.13",
     "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.11",

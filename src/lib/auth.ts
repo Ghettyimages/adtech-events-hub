@@ -177,8 +177,7 @@ export const authOptions: NextAuthOptions = {
 
 // Export handlers for use in API route
 // NextAuth v4 App Router pattern
-// NextAuth returns an object with handlers property for App Router
-const nextAuth = NextAuth(authOptions);
-// Check if handlers exist, otherwise use the handler directly
-export const handlers = (nextAuth as any).handlers || nextAuth;
+// NextAuth() returns a handler function that handles both GET and POST
+const handler = NextAuth(authOptions);
+export const handlers = handler;
 

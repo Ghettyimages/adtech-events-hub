@@ -55,11 +55,14 @@ model User {
   id            String   @id @default(cuid())
   email         String?  @unique
   name          String?
+  // Authentication
+  password      String?  // Hashed password for credentials provider (optional for OAuth users)
   // Profile fields we want to capture
   company       String?
   title         String?
   companyEmail  String?
   location      String?
+  linkedInProfile String? // LinkedIn profile URL
   // Consent & preferences
   consentEmail        Boolean  @default(false)
   consentCalendar     Boolean  @default(false)

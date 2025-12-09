@@ -5,7 +5,7 @@ import { getToken } from 'next-auth/jwt';
 import { prisma } from '@/lib/db';
 
 // Public routes that don't require authentication
-const publicRoutes = ['/', '/submit', '/login', '/privacy', '/terms'];
+const publicRoutes = ['/', '/submit', '/login', '/signup', '/privacy', '/terms'];
 
 export default withAuth(
   async function middleware(req: NextRequest) {

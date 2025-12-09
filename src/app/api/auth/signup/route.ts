@@ -44,8 +44,9 @@ export async function POST(request: NextRequest) {
 
     const { name, email, password, company, title, location, linkedInProfile } = validationResult.data;
 
-    // Validate LinkedIn URL if provided
-    if (linkedInProfile && !isValidLinkedInUrl(linkedInProfile)) {
+    // Validate LinkedIn URL if provided (skip if empty string)
+    const linkedInUrl = linkedInProfile?.trim();
+    if (linkedInUrl && linkedInUrl !== '' && !isValidLinkedInUrl(linkedInUrl)) {
       return NextResponse.json(
         { error: 'Invalid LinkedIn URL. Must be a valid linkedin.com URL.' },
         { status: 400 }
@@ -73,10 +74,10 @@ export async function POST(request: NextRequest) {
         email,
         name,
         password: hashedPassword,
-        company: company || null,
-        title: title || null,
-        location: location || null,
-        linkedInProfile: linkedInProfile || null,
+        company: company?.trim() || null,
+        title: title?.trim() || null,
+        location: location?.trim() || null,
+        linkedInProfile: linkedInUrl || null,
       },
       select: {
         id: true,
@@ -100,11 +101,29 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error('Signup error:', error);
+    
+    // Provide more specific error messages
+    let errorMessage = 'An error occurred while creating your account';
+    let statusCode = 500;
+    
+    if (error?.code === 'P2002') {
+      // Prisma unique constraint violation
+      errorMessage = 'User with this email already exists';
+      statusCode = 400;
+    } else if (error?.message?.includes('PrismaClient')) {
+      errorMessage = 'Database connection error. Please try again later.';
+    } else if (error?.message) {
+      errorMessage = error.message;
+    }
+    
     return NextResponse.json(
-      { error: 'An error occurred while creating your account' },
-      { status: 500 }
+      { 
+        error: errorMessage,
+        ...(process.env.NODE_ENV === 'development' && { details: error?.message, stack: error?.stack })
+      },
+      { status: statusCode }
     );
   }
 }

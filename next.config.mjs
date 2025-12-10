@@ -4,11 +4,14 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
-    // Mark pg and related packages as external server-only packages
-    serverComponentsExternalPackages: ['pg', 'pg-native', '@prisma/adapter-pg'],
   },
-  webpack: (config, { isServer, webpack }) => {
+  // Mark pg and related packages as external server-only packages (moved from experimental in Next.js 16)
+  serverExternalPackages: ['pg', 'pg-native', '@prisma/adapter-pg'],
+  // Add empty turbopack config to silence warning when webpack config exists
+  turbopack: {},
+  webpack: (config, { isServer }) => {
     // Externalize pg and related packages to avoid bundling Node.js built-in modules
+    // Note: This only applies when webpack is used, not Turbopack
     if (isServer) {
       config.externals = config.externals || [];
       if (Array.isArray(config.externals)) {

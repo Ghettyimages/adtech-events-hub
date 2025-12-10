@@ -4,12 +4,12 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
-    // Disable Turbopack for build to avoid bundling issues with Node.js modules
-    turbo: false,
+    // Mark pg and related packages as external server-only packages
+    serverComponentsExternalPackages: ['pg', 'pg-native', '@prisma/adapter-pg'],
   },
-  webpack: (config, { isServer }) => {
+  webpack: (config, { isServer, webpack }) => {
+    // Externalize pg and related packages to avoid bundling Node.js built-in modules
     if (isServer) {
-      // Externalize pg and related packages on server to avoid bundling Node.js built-in modules
       config.externals = config.externals || [];
       if (Array.isArray(config.externals)) {
         config.externals.push('pg', 'pg-native');
@@ -21,6 +21,20 @@ const nextConfig = {
         ];
       }
     }
+    
+    // Ignore pg and related packages on client side
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        pg: false,
+        'pg-native': false,
+        dns: false,
+        fs: false,
+        net: false,
+        tls: false,
+      };
+    }
+    
     return config;
   },
 };

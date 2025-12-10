@@ -1,16 +1,19 @@
-import NextAuth, { NextAuthOptions } from 'next-auth';
-import CredentialsProvider from 'next-auth/providers/credentials';
-import GoogleProvider from 'next-auth/providers/google';
+import NextAuth from 'next-auth';
+import Credentials from 'next-auth/providers/credentials';
+import Google from 'next-auth/providers/google';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import { prisma } from '@/lib/db';
 import { randomBytes } from 'crypto';
 import { verifyPassword } from '@/lib/password';
 
-export const authOptions: NextAuthOptions = {
+export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma) as any,
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
+  pages: {
+    signIn: '/login',
+  },
   providers: [
-    CredentialsProvider({
+    Credentials({
       name: 'credentials',
       credentials: {
         email: { label: 'Email', type: 'email' },
@@ -24,7 +27,7 @@ export const authOptions: NextAuthOptions = {
         try {
           // Find user by email
           const user = await prisma.user.findUnique({
-            where: { email: credentials.email },
+            where: { email: credentials.email as string },
           });
 
           if (!user || !user.password) {
@@ -33,7 +36,7 @@ export const authOptions: NextAuthOptions = {
           }
 
           // Verify password
-          const isValid = await verifyPassword(credentials.password, user.password);
+          const isValid = await verifyPassword(credentials.password as string, user.password);
 
           if (!isValid) {
             return null;
@@ -51,7 +54,7 @@ export const authOptions: NextAuthOptions = {
         }
       },
     }),
-    GoogleProvider({
+    Google({
       clientId: process.env.GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
       authorization: {
@@ -63,9 +66,6 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-  pages: {
-    signIn: '/login',
-  },
   callbacks: {
     async redirect({ url, baseUrl }) {
       // If url is a relative URL, make it absolute
@@ -142,11 +142,5 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: 'database',
   },
-};
-
-// Export handlers for use in API route
-// NextAuth v4 App Router pattern
-// NextAuth() returns a handler function that handles both GET and POST
-const handler = NextAuth(authOptions);
-export const handlers = handler;
+});
 

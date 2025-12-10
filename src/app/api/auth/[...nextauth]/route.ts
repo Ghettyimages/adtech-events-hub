@@ -1,6 +1,5 @@
 import { handlers } from '@/lib/auth';
 
-// NextAuth v4 App Router: handler function works for both GET and POST
-export const GET = handlers;
-export const POST = handlers;
+// Auth.js v5 App Router: handlers object contains GET and POST
+export const { GET, POST } = handlers;
 

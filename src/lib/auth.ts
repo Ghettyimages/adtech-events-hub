@@ -80,14 +80,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // Otherwise, return baseUrl
       return baseUrl;
     },
-    async session({ session, user }) {
-      if (session.user && user) {
-        session.user.id = user.id;
+    async session({ session, user, token }) {
+      // Handle both OAuth (user parameter) and credentials (token parameter) providers
+      const userId = user?.id || (token as any)?.sub || (token as any)?.id;
+      
+      if (session.user && userId) {
+        session.user.id = userId;
         
         try {
           // Fetch user from DB to get feedToken and profile data
           const dbUser = await prisma.user.findUnique({
-            where: { id: user.id },
+            where: { id: userId },
             select: {
               feedToken: true,
               name: true,
@@ -97,6 +100,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               location: true,
               consentEmail: true,
               consentCalendar: true,
+              isAdmin: true,
             },
           });
 
@@ -105,7 +109,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             if (!dbUser.feedToken) {
               const feedToken = randomBytes(32).toString('hex');
               await prisma.user.update({
-                where: { id: user.id },
+                where: { id: userId },
                 data: { feedToken },
               });
               (session.user as any).feedToken = feedToken;
@@ -130,6 +134,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               dbUser.location
             );
             (session.user as any).isProfileComplete = isProfileComplete;
+            (session.user as any).isAdmin = dbUser.isAdmin || false;
           }
         } catch (error) {
           console.error('Error in session callback:', error);
@@ -138,9 +143,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       return session;
     },
+    async jwt({ token, user, account }) {
+      // When user signs in, add user ID to token
+      if (user) {
+        token.id = user.id;
+        token.sub = user.id;
+      }
+      return token;
+    },
   },
   session: {
-    strategy: 'database',
+    strategy: 'jwt', // Changed to JWT for better compatibility with credentials provider
   },
 });
 

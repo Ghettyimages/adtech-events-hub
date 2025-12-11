@@ -66,6 +66,8 @@ model User {
   consentEmail        Boolean  @default(false)
   consentCalendar     Boolean  @default(false)
   termsAcceptedAt     DateTime?
+  // Admin access
+  isAdmin             Boolean  @default(false)
   // Token for personal iCal feeds
   feedToken     String?  @unique
   createdAt     DateTime @default(now())

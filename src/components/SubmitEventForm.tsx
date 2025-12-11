@@ -379,7 +379,7 @@ export default function SubmitEventForm() {
             <select
               id="timezone"
               name="timezone"
-              value={formData.timezone}
+              value={formData.timezone || ''}
               onChange={handleChange}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
             >

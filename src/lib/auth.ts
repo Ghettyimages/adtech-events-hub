@@ -3,8 +3,14 @@ import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import { prisma } from '@/lib/db';
-import { randomBytes } from 'crypto';
 import { verifyPassword } from '@/lib/password';
+
+// Use Web Crypto to generate tokens so this works in both Node and Edge runtimes
+const generateFeedToken = () => {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+};
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma) as any,
@@ -119,7 +125,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           if (dbUser) {
             // Generate feedToken if it doesn't exist (first login)
             if (!dbUser.feedToken) {
-              const feedToken = randomBytes(32).toString('hex');
+              const feedToken = generateFeedToken();
               await prisma.user.update({
                 where: { id: userId },
                 data: { feedToken },

@@ -20,6 +20,13 @@ export interface NormalizeEventsResult {
   errors?: string[];
 }
 
+// Detect whether a date string appears to include a time component
+const hasTimeComponent = (value?: string | null): boolean => {
+  if (!value) return false;
+  // Rough checks: ISO with "T12:00" or human strings with "12:00"
+  return /T\d{1,2}:\d{2}/.test(value) || /\d{1,2}:\d{2}/.test(value);
+};
+
 /**
  * Normalize extracted events - validate dates, clean data
  */
@@ -41,6 +48,9 @@ export async function normalize_events(
       // Validate and normalize dates
       let startDate: Date | null = null;
       let endDate: Date | null = null;
+
+      const startHasTime = hasTimeComponent(event.start);
+      const endHasTime = hasTimeComponent(event.end);
 
       if (event.start) {
         startDate = new Date(event.start);
@@ -71,6 +81,19 @@ export async function normalize_events(
         endDate = startDate;
       }
 
+      // If no explicit time was provided, normalize to all-day bounds and drop timezone
+      if (!startHasTime) {
+        startDate.setHours(0, 0, 0, 0);
+      }
+      if (!endHasTime) {
+        endDate.setHours(23, 59, 59, 999);
+      }
+
+      // Only keep timezone when a time was captured or provided explicitly
+      const timezone =
+        event.timezone ||
+        ((startHasTime || endHasTime) ? defaultTimezone : undefined);
+
       // Extract and normalize tags
       const extractedTags = extractTags(event);
       const normalizedTags = normalizeTags(extractedTags.length > 0 ? extractedTags : event.tags || []);
@@ -97,6 +120,7 @@ export async function normalize_events(
         title: event.title.trim(),
         start: startDate.toISOString(),
         end: endDate.toISOString(),
+        timezone,
         location: event.location?.trim() || undefined,
         url: event.url?.trim() || undefined,
         description: event.description?.trim() || undefined,

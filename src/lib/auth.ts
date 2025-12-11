@@ -69,15 +69,27 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async redirect({ url, baseUrl }) {
       // If url is a relative URL, make it absolute
-      if (url.startsWith('/')) {
-        url = `${baseUrl}${url}`;
+      const relativeUrl = url.startsWith('/') ? url : `/${url}`;
+      const absoluteUrl = url.startsWith('/') ? `${baseUrl}${url}` : url;
+      
+      // Check if it's a valid URL on the same origin
+      try {
+        const urlObj = new URL(absoluteUrl);
+        if (urlObj.origin === baseUrl) {
+          // If it's the login page, redirect to home instead
+          if (urlObj.pathname === '/login') {
+            return baseUrl;
+          }
+          return absoluteUrl;
+        }
+      } catch (e) {
+        // Invalid URL, use relative path
+        if (relativeUrl && relativeUrl !== '/login') {
+          return `${baseUrl}${relativeUrl}`;
+        }
       }
-      // If url is on the same origin, allow it
-      // Profile completion check will be handled by middleware
-      if (new URL(url).origin === baseUrl) {
-        return url;
-      }
-      // Otherwise, return baseUrl
+      
+      // Default to home page
       return baseUrl;
     },
     async session({ session, user, token }) {

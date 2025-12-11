@@ -13,11 +13,6 @@ export default function SubmitPage() {
         <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
           All submissions are pending approval before appearing on the calendar.
         </p>
-        <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg max-w-2xl mx-auto">
-          <p className="text-sm text-blue-800 dark:text-blue-200">
-            <strong>Login to submit events, subscribe to The Media Calendar, add events to your calendar and customize your event feeds.</strong>
-          </p>
-        </div>
       </div>
 
       <SubmitEventForm />

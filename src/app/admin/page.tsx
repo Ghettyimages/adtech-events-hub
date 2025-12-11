@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { Event, Tag } from '@prisma/client';
 import { format } from 'date-fns';
 import { PREDEFINED_TAGS } from '@/lib/extractor/tagExtractor';
@@ -34,6 +36,8 @@ interface EventFormData {
 }
 
 export default function AdminPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const [pendingEvents, setPendingEvents] = useState<Event[]>([]);
   const [publishedEvents, setPublishedEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,11 +75,32 @@ export default function AdminPage() {
   });
   const [sortBy, setSortBy] = useState<'name' | 'usage' | 'created'>('name');
 
+  // Check authentication and admin status
   useEffect(() => {
-    fetchPendingEvents();
-    fetchPublishedEvents();
-    fetchMonitoredUrls();
-  }, []);
+    if (status === 'loading') {
+      return;
+    }
+
+    if (status === 'unauthenticated') {
+      setLoading(false);
+      router.push('/login?callbackUrl=/admin');
+      return;
+    }
+
+    if (status === 'authenticated' && session) {
+      // Check if user is admin
+      const isAdmin = (session.user as any)?.isAdmin || false;
+      if (!isAdmin) {
+        setLoading(false);
+        router.push('/');
+        return;
+      }
+      // User is authenticated and is admin, load data
+      fetchPendingEvents();
+      fetchPublishedEvents();
+      fetchMonitoredUrls();
+    }
+  }, [status, session, router]);
 
   // Fetch tags when Tags tab is active
   useEffect(() => {
@@ -587,12 +612,23 @@ export default function AdminPage() {
     }
   };
 
-  if (loading) {
+  // Show loading while checking authentication or loading data
+  if (status === 'loading' || (status === 'authenticated' && loading)) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="text-center text-xl text-gray-600">Loading...</div>
       </div>
     );
+  }
+
+  // If not authenticated, redirect is happening (show nothing)
+  if (status === 'unauthenticated') {
+    return null;
+  }
+
+  // If authenticated but not admin, redirect is happening (show nothing)
+  if (status === 'authenticated' && session && !((session.user as any)?.isAdmin)) {
+    return null;
   }
 
   return (
@@ -603,9 +639,6 @@ export default function AdminPage() {
         </h1>
         <p className="text-lg text-gray-600 dark:text-gray-400">
           Manage events, scrape URLs, and monitor sources
-        </p>
-        <p className="text-sm text-yellow-600 dark:text-yellow-500 mt-2">
-          ⚠️ Note: This page has no authentication yet. Implement auth before production use.
         </p>
       </div>
 

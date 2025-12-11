@@ -18,6 +18,9 @@ export default function AddToCalendarLink({ event }: AddToCalendarLinkProps) {
   const downloadICS = () => {
     const calendar: ICalCalendar = ical({ name: 'AdTech Event' });
     
+    // If timezone is null, it's an all-day event
+    const isAllDay = !event.timezone;
+    
     calendar.createEvent({
       start: new Date(event.start),
       end: new Date(event.end),
@@ -25,6 +28,8 @@ export default function AddToCalendarLink({ event }: AddToCalendarLinkProps) {
       description: event.description || undefined,
       location: event.location || undefined,
       url: event.url || undefined,
+      timezone: event.timezone || undefined,
+      allDay: isAllDay,
     });
 
     const icsContent = calendar.toString();

@@ -47,6 +47,8 @@ export async function GET(request: NextRequest) {
 
     // Add events to calendar
     events.forEach((event) => {
+      // If timezone is null, it's an all-day event
+      const isAllDay = !event.timezone;
       calendar.createEvent({
         start: new Date(event.start),
         end: new Date(event.end),
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest) {
         location: event.location || undefined,
         url: event.url || undefined,
         timezone: event.timezone || undefined,
+        allDay: isAllDay,
       });
     });
 

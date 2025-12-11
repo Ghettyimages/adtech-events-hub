@@ -42,19 +42,25 @@ export function buildGoogleCalendarSubscribeUrl(feedUrl: string): string {
 }
 
 /**
- * Formats an event for FullCalendar as an all-day event
+ * Formats an event for FullCalendar
+ * Events are all-day if they don't have a timezone (default behavior)
+ * Events with a timezone have specific times and should display times
  */
 export function formatEventForCalendar(event: Event) {
   // Handle both Date objects and ISO string dates
   const startDate = typeof event.start === 'string' ? event.start : event.start.toISOString();
   const endDate = typeof event.end === 'string' ? event.end : event.end.toISOString();
   
+  // If timezone is null/undefined, it's an all-day event
+  // If timezone is set, it has specific times
+  const isAllDay = !event.timezone;
+  
   return {
     id: event.id,
     title: event.title,
     start: startDate,
     end: endDate,
-    allDay: true, // Mark as all-day event (no time display)
+    allDay: isAllDay,
     url: event.url || undefined,
     extendedProps: {
       description: event.description,

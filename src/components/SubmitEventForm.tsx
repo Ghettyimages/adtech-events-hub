@@ -105,6 +105,7 @@ export default function SubmitEventForm() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isAllDay, setIsAllDay] = useState(true); // Default to all-day events
 
   // Auto-populate structured location from location string
   useEffect(() => {
@@ -148,9 +149,62 @@ export default function SubmitEventForm() {
         throw new Error('Please select at least one tag');
       }
 
+      // Convert date or datetime to ISO datetime format
+      // For all-day events: date-only format "2025-01-15" -> start of day / end of day
+      // For timed events: datetime-local format "2025-01-15T10:00" -> ISO with time
+      const convertToISO = (dateValue: string, isStart: boolean): string => {
+        if (!dateValue || !dateValue.trim()) {
+          throw new Error(`${isStart ? 'Start' : 'End'} date is required`);
+        }
+        
+        if (isAllDay) {
+          // For all-day events, date-only format: "YYYY-MM-DD"
+          // Set start to 00:00:00 and end to 23:59:59 in local timezone
+          const date = new Date(dateValue);
+          if (isNaN(date.getTime())) {
+            throw new Error('Invalid date format');
+          }
+          
+          if (isStart) {
+            // Start of day: 00:00:00 local time
+            date.setHours(0, 0, 0, 0);
+          } else {
+            // End of day: 23:59:59 local time
+            date.setHours(23, 59, 59, 999);
+          }
+          return date.toISOString();
+        } else {
+          // For timed events, datetime-local format: "YYYY-MM-DDTHH:mm"
+          // JavaScript Date constructor interprets this as local time
+          const date = new Date(dateValue);
+          if (isNaN(date.getTime())) {
+            throw new Error('Invalid date/time format');
+          }
+          // Return ISO string (this will include timezone offset)
+          return date.toISOString();
+        }
+      };
+
+      // Helper to convert empty strings to null for optional fields
+      const nullIfEmpty = (value: string | null | undefined): string | null => {
+        if (value === null || value === undefined) return null;
+        const trimmed = value.trim();
+        return trimmed === '' ? null : trimmed;
+      };
+
       const submissionData = {
-        ...formData,
-        tags: selectedTags,
+        title: formData.title.trim(),
+        description: nullIfEmpty(formData.description),
+        url: nullIfEmpty(formData.url),
+        location: nullIfEmpty(formData.location),
+        start: convertToISO(formData.start, true),
+        end: convertToISO(formData.end, false),
+        timezone: isAllDay ? null : (nullIfEmpty(formData.timezone) || 'America/New_York'),
+        source: nullIfEmpty(formData.source),
+        tags: selectedTags.length > 0 ? selectedTags : null,
+        country: formData.country || 'US',
+        region: nullIfEmpty(formData.region),
+        city: nullIfEmpty(formData.city),
       };
 
       const res = await fetch('/api/events', {
@@ -162,6 +216,14 @@ export default function SubmitEventForm() {
       const data = await res.json();
 
       if (!res.ok) {
+        // Show detailed validation errors if available
+        if (data.details && Array.isArray(data.details)) {
+          const errorMessages = data.details.map((err: any) => {
+            const field = err.path?.join('.') || 'field';
+            return `${field}: ${err.message}`;
+          });
+          throw new Error(`Validation errors:\n${errorMessages.join('\n')}`);
+        }
         throw new Error(data.error || 'Failed to submit event');
       }
 
@@ -181,6 +243,8 @@ export default function SubmitEventForm() {
         region: '',
         city: '',
       });
+      // Reset all-day checkbox to default
+      setIsAllDay(true);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -248,13 +312,40 @@ export default function SubmitEventForm() {
           />
         </div>
 
+        <div>
+          <label className="flex items-center mb-4">
+            <input
+              type="checkbox"
+              checked={isAllDay}
+              onChange={(e) => {
+                setIsAllDay(e.target.checked);
+                // Clear time values when switching to all-day
+                if (e.target.checked && formData.start) {
+                  // Extract date part only (YYYY-MM-DD)
+                  const startDate = formData.start.split('T')[0];
+                  const endDate = formData.end.split('T')[0];
+                  setFormData((prev) => ({
+                    ...prev,
+                    start: startDate,
+                    end: endDate,
+                  }));
+                }
+              }}
+              className="mr-2 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              All-day event
+            </span>
+          </label>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label htmlFor="start" className="block text-sm font-semibold mb-2">
-              Start Date & Time *
+              {isAllDay ? 'Start Date *' : 'Start Date & Time *'}
             </label>
             <input
-              type="datetime-local"
+              type={isAllDay ? 'date' : 'datetime-local'}
               id="start"
               name="start"
               value={formData.start}
@@ -266,10 +357,10 @@ export default function SubmitEventForm() {
 
           <div>
             <label htmlFor="end" className="block text-sm font-semibold mb-2">
-              End Date & Time *
+              {isAllDay ? 'End Date *' : 'End Date & Time *'}
             </label>
             <input
-              type="datetime-local"
+              type={isAllDay ? 'date' : 'datetime-local'}
               id="end"
               name="end"
               value={formData.end}
@@ -279,6 +370,30 @@ export default function SubmitEventForm() {
             />
           </div>
         </div>
+
+        {!isAllDay && (
+          <div>
+            <label htmlFor="timezone" className="block text-sm font-semibold mb-2">
+              Timezone
+            </label>
+            <select
+              id="timezone"
+              name="timezone"
+              value={formData.timezone}
+              onChange={handleChange}
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
+            >
+              <option value="America/New_York">Eastern Time (ET)</option>
+              <option value="America/Chicago">Central Time (CT)</option>
+              <option value="America/Denver">Mountain Time (MT)</option>
+              <option value="America/Los_Angeles">Pacific Time (PT)</option>
+              <option value="Europe/London">London (GMT)</option>
+              <option value="Europe/Paris">Paris (CET)</option>
+              <option value="Asia/Tokyo">Tokyo (JST)</option>
+              <option value="UTC">UTC</option>
+            </select>
+          </div>
+        )}
 
         <div>
           <label htmlFor="location" className="block text-sm font-semibold mb-2">
@@ -412,38 +527,20 @@ export default function SubmitEventForm() {
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="timezone" className="block text-sm font-semibold mb-2">
-              Timezone
-            </label>
-            <input
-              type="text"
-              id="timezone"
-              name="timezone"
-              value={formData.timezone || ''}
-              onChange={handleChange}
-              placeholder="America/New_York"
-              maxLength={50}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="source" className="block text-sm font-semibold mb-2">
-              Source
-            </label>
-            <input
-              type="text"
-              id="source"
-              name="source"
-              value={formData.source || ''}
-              onChange={handleChange}
-              placeholder="e.g., Beeler.Tech, IAB"
-              maxLength={100}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
-            />
-          </div>
+        <div>
+          <label htmlFor="source" className="block text-sm font-semibold mb-2">
+            Source
+          </label>
+          <input
+            type="text"
+            id="source"
+            name="source"
+            value={formData.source || ''}
+            onChange={handleChange}
+            placeholder="e.g., Beeler.Tech, IAB"
+            maxLength={100}
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-800"
+          />
         </div>
 
         <button

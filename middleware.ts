@@ -1,11 +1,10 @@
-import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { NextRequest, NextResponse } from 'next/server';
+import { getToken } from 'next-auth/jwt';
 
 // Public routes that don't require authentication
 const publicRoutes = ['/', '/submit', '/login', '/signup', '/privacy', '/terms'];
 
-// Use the shared auth() helper so middleware and API/pages share the same secret/cookies
-export default auth((req) => {
+export async function middleware(req: NextRequest) {
   const { nextUrl } = req;
   const pathname = nextUrl.pathname;
 
@@ -14,8 +13,13 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  // For all other routes, require authentication
-  if (!req.auth) {
+  // Check JWT without pulling in Prisma/Node-only code (edge-safe)
+  const token = await getToken({
+    req,
+    secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
+  });
+
+  if (!token) {
     const loginUrl = new URL('/login', nextUrl);
     // Preserve the original destination so users land back where they intended
     loginUrl.searchParams.set('callbackUrl', `${pathname}${nextUrl.search}`);
@@ -23,7 +27,7 @@ export default auth((req) => {
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: [

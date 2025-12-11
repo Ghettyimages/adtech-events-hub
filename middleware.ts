@@ -6,7 +6,9 @@ import { getToken } from 'next-auth/jwt';
 const publicRoutes = ['/', '/submit', '/login', '/signup', '/privacy', '/terms'];
 
 export async function middleware(req: NextRequest) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  // Use the same secret as auth.ts
+  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
+  const token = await getToken({ req, secret });
   const pathname = req.nextUrl.pathname;
 
   // Allow public routes without authentication

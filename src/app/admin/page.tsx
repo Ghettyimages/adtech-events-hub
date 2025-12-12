@@ -61,6 +61,7 @@ export default function AdminPage() {
   const [editFormData, setEditFormData] = useState<EventFormData>({});
   const [editSelectedTags, setEditSelectedTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [isAllDay, setIsAllDay] = useState(true); // Default to all-day events
 
   // Tags management state
   const [tags, setTags] = useState<Tag[]>([]);
@@ -397,13 +398,34 @@ export default function AdminPage() {
     }
     setEditSelectedTags(tagsArray);
     
+    // Determine if event is all-day: no timezone means all-day, or default to true for pending events
+    const eventIsAllDay = event.timezone === null || event.timezone === '' || event.status === 'PENDING';
+    setIsAllDay(eventIsAllDay);
+    
+    // Format dates based on all-day status
+    const startDate = new Date(event.start);
+    const endDate = new Date(event.end);
+    
+    let startFormatted: string;
+    let endFormatted: string;
+    
+    if (eventIsAllDay) {
+      // For all-day events, use date-only format (YYYY-MM-DD)
+      startFormatted = startDate.toISOString().slice(0, 10);
+      endFormatted = endDate.toISOString().slice(0, 10);
+    } else {
+      // For timed events, use datetime-local format (YYYY-MM-DDTHH:mm)
+      startFormatted = startDate.toISOString().slice(0, 16);
+      endFormatted = endDate.toISOString().slice(0, 16);
+    }
+    
     setEditFormData({
       title: event.title,
       description: event.description || '',
       url: event.url || '',
       location: event.location || '',
-      start: new Date(event.start).toISOString().slice(0, 16), // Format for datetime-local input
-      end: new Date(event.end).toISOString().slice(0, 16),
+      start: startFormatted,
+      end: endFormatted,
       timezone: event.timezone || '',
       source: event.source || '',
       country: event.country || '',
@@ -447,12 +469,6 @@ export default function AdminPage() {
         updateData.location = trimmed && trimmed.length > 0 ? trimmed : null;
       }
       
-      // Timezone is optional - send null if empty
-      if (editFormData.timezone !== undefined) {
-        const trimmed = editFormData.timezone?.trim();
-        updateData.timezone = trimmed && trimmed.length > 0 ? trimmed : null;
-      }
-      
       // Source is optional - send null if empty
       if (editFormData.source !== undefined) {
         const trimmed = editFormData.source?.trim();
@@ -480,26 +496,60 @@ export default function AdminPage() {
         updateData.tags = null;
       }
 
-      // Handle dates - datetime-local format is "YYYY-MM-DDTHH:mm"
-      // These are required fields
-      if (editFormData.start !== undefined && editFormData.start !== null && editFormData.start !== '') {
-        const startDate = new Date(editFormData.start);
-        if (isNaN(startDate.getTime())) {
-          throw new Error('Invalid start date format');
+      // Handle dates - convert based on all-day status
+      // For all-day events: date-only format "YYYY-MM-DD" -> start of day / end of day
+      // For timed events: datetime-local format "YYYY-MM-DDTHH:mm" -> ISO with time
+      const convertToISO = (dateValue: string, isStart: boolean): string => {
+        if (!dateValue || !dateValue.trim()) {
+          throw new Error(`${isStart ? 'Start' : 'End'} date is required`);
         }
-        updateData.start = startDate.toISOString();
+        
+        if (isAllDay) {
+          // For all-day events, date-only format: "YYYY-MM-DD"
+          // Set start to 00:00:00 and end to 23:59:59 in local timezone
+          const date = new Date(dateValue);
+          if (isNaN(date.getTime())) {
+            throw new Error('Invalid date format');
+          }
+          
+          if (isStart) {
+            // Start of day: 00:00:00 local time
+            date.setHours(0, 0, 0, 0);
+          } else {
+            // End of day: 23:59:59 local time
+            date.setHours(23, 59, 59, 999);
+          }
+          return date.toISOString();
+        } else {
+          // For timed events, datetime-local format: "YYYY-MM-DDTHH:mm"
+          // JavaScript Date constructor interprets this as local time
+          const date = new Date(dateValue);
+          if (isNaN(date.getTime())) {
+            throw new Error('Invalid date/time format');
+          }
+          // Return ISO string (this will include timezone offset)
+          return date.toISOString();
+        }
+      };
+
+      if (editFormData.start !== undefined && editFormData.start !== null && editFormData.start !== '') {
+        updateData.start = convertToISO(editFormData.start, true);
       } else {
         throw new Error('Start date is required');
       }
       
       if (editFormData.end !== undefined && editFormData.end !== null && editFormData.end !== '') {
-        const endDate = new Date(editFormData.end);
-        if (isNaN(endDate.getTime())) {
-          throw new Error('Invalid end date format');
-        }
-        updateData.end = endDate.toISOString();
+        updateData.end = convertToISO(editFormData.end, false);
       } else {
         throw new Error('End date is required');
+      }
+      
+      // Set timezone to null for all-day events, otherwise use the provided timezone
+      if (isAllDay) {
+        updateData.timezone = null;
+      } else if (editFormData.timezone !== undefined) {
+        const trimmed = editFormData.timezone?.trim();
+        updateData.timezone = trimmed && trimmed.length > 0 ? trimmed : null;
       }
       
       // Validate that end is after start
@@ -585,6 +635,8 @@ export default function AdminPage() {
       await fetch('/api/revalidate', { method: 'POST' });
       setEditingEvent(null);
       setEditFormData({});
+      setEditSelectedTags([]);
+      setIsAllDay(true); // Reset to default
       setFeedback('success', andApprove ? 'Event updated and approved!' : 'Event updated successfully!');
     } catch (err: any) {
       console.error('Error in handleSaveEdit:', err);
@@ -1401,6 +1453,7 @@ export default function AdminPage() {
                     setEditingEvent(null);
                     setEditFormData({});
                     setEditSelectedTags([]);
+                    setIsAllDay(true); // Reset to default
                   }}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
                 >
@@ -1440,13 +1493,40 @@ export default function AdminPage() {
                   />
                 </div>
 
+                <div>
+                  <label className="flex items-center mb-4">
+                    <input
+                      type="checkbox"
+                      checked={isAllDay}
+                      onChange={(e) => {
+                        setIsAllDay(e.target.checked);
+                        // Clear time values when switching to all-day
+                        if (e.target.checked && editFormData.start) {
+                          // Extract date part only (YYYY-MM-DD)
+                          const startDate = editFormData.start.split('T')[0];
+                          const endDate = editFormData.end?.split('T')[0] || '';
+                          setEditFormData((prev) => ({
+                            ...prev,
+                            start: startDate,
+                            end: endDate,
+                          }));
+                        }
+                      }}
+                      className="mr-2 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      All-day event
+                    </span>
+                  </label>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Start Date *
+                      {isAllDay ? 'Start Date *' : 'Start Date & Time *'}
                     </label>
                     <input
-                      type="datetime-local"
+                      type={isAllDay ? 'date' : 'datetime-local'}
                       value={editFormData.start || ''}
                       onChange={(e) => setEditFormData({ ...editFormData, start: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
@@ -1456,10 +1536,10 @@ export default function AdminPage() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      End Date *
+                      {isAllDay ? 'End Date *' : 'End Date & Time *'}
                     </label>
                     <input
-                      type="datetime-local"
+                      type={isAllDay ? 'date' : 'datetime-local'}
                       value={editFormData.end || ''}
                       onChange={(e) => setEditFormData({ ...editFormData, end: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
@@ -1492,32 +1572,39 @@ export default function AdminPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Source
-                    </label>
-                    <input
-                      type="text"
-                      value={editFormData.source || ''}
-                      onChange={(e) => setEditFormData({ ...editFormData, source: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Source
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.source || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, source: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
 
+                {!isAllDay && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Timezone
                     </label>
-                    <input
-                      type="text"
+                    <select
                       value={editFormData.timezone || ''}
                       onChange={(e) => setEditFormData({ ...editFormData, timezone: e.target.value })}
-                      placeholder="America/New_York"
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                    />
+                    >
+                      <option value="America/New_York">Eastern Time (ET)</option>
+                      <option value="America/Chicago">Central Time (CT)</option>
+                      <option value="America/Denver">Mountain Time (MT)</option>
+                      <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                      <option value="Europe/London">London (GMT)</option>
+                      <option value="Europe/Paris">Paris (CET)</option>
+                      <option value="Asia/Tokyo">Tokyo (JST)</option>
+                      <option value="UTC">UTC</option>
+                    </select>
                   </div>
-                </div>
+                )}
 
                 {/* Tags Section */}
                 <div>
@@ -1596,6 +1683,7 @@ export default function AdminPage() {
                       setEditingEvent(null);
                       setEditFormData({});
                       setEditSelectedTags([]);
+                      setIsAllDay(true); // Reset to default
                     }}
                     className="px-6 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition font-semibold"
                   >

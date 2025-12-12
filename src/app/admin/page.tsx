@@ -506,20 +506,18 @@ export default function AdminPage() {
         
         if (isAllDay) {
           // For all-day events, date-only format: "YYYY-MM-DD"
-          // Set start to 00:00:00 and end to 23:59:59 in local timezone
-          const date = new Date(dateValue);
-          if (isNaN(date.getTime())) {
-            throw new Error('Invalid date format');
-          }
+          // Parse the date components and create UTC dates to avoid timezone shifts
+          const [year, month, day] = dateValue.split('-').map(Number);
           
           if (isStart) {
-            // Start of day: 00:00:00 local time
-            date.setHours(0, 0, 0, 0);
+            // Start of day: 00:00:00 UTC on the selected date
+            const date = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+            return date.toISOString();
           } else {
-            // End of day: 23:59:59 local time
-            date.setHours(23, 59, 59, 999);
+            // End of day: 23:59:59.999 UTC on the selected date
+            const date = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+            return date.toISOString();
           }
-          return date.toISOString();
         } else {
           // For timed events, datetime-local format: "YYYY-MM-DDTHH:mm"
           // JavaScript Date constructor interprets this as local time

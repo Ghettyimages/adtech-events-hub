@@ -2,6 +2,27 @@ import { Event } from '@prisma/client';
 import { format } from 'date-fns';
 
 /**
+ * Formats a date for display, handling all-day events correctly
+ * For all-day events (timezone is null), extracts UTC date components to avoid timezone shifts
+ * For timed events, formats using local time
+ */
+export function formatEventDateForDisplay(date: Date | string, isAllDay: boolean): string {
+  const d = new Date(date);
+  if (isAllDay) {
+    // For all-day events, extract UTC date components to avoid timezone shifts
+    const year = d.getUTCFullYear();
+    const month = d.getUTCMonth();
+    const day = d.getUTCDate();
+    // Create a date in local timezone with UTC components for formatting
+    const utcDate = new Date(year, month, day);
+    return format(utcDate, 'PP');
+  } else {
+    // For timed events, format using local time
+    return format(d, 'PP');
+  }
+}
+
+/**
  * Converts a Date to Google Calendar all-day format: YYYYMMDD
  * Uses UTC date components to avoid timezone shifts
  */

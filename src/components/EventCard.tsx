@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import AddToCalendarLink from './AddToCalendarLink';
 import SubscribeModal from './SubscribeModal';
+import { formatEventDateForDisplay } from '@/lib/events';
 
 interface EventCardProps {
   event: Event;
@@ -146,10 +147,10 @@ export default function EventCard({ event, onClose }: EventCardProps) {
                 Date
               </h3>
               <p className="text-gray-900 dark:text-gray-100">
-                <strong>Start:</strong> {format(new Date(event.start), 'PP')}
+                <strong>Start:</strong> {formatEventDateForDisplay(event.start, !event.timezone)}
               </p>
               <p className="text-gray-900 dark:text-gray-100">
-                <strong>End:</strong> {format(new Date(event.end), 'PP')}
+                <strong>End:</strong> {formatEventDateForDisplay(event.end, !event.timezone)}
               </p>
             </div>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { Event } from '@prisma/client';
-import { format } from 'date-fns';
+import { formatEventDateForDisplay } from '@/lib/events';
 
 interface EventListProps {
   events: Event[];
@@ -9,7 +9,7 @@ interface EventListProps {
   emptyStateMessage?: string;
 }
 
-function formatDate(value: Date | string | null) {
+function formatDate(value: Date | string | null, isAllDay: boolean = false) {
   if (!value) {
     return 'TBD';
   }
@@ -19,8 +19,8 @@ function formatDate(value: Date | string | null) {
     return 'TBD';
   }
 
-  // Format as date only (no time) for all-day events
-  return format(date, 'PP');
+  // Use the shared utility function that handles all-day events correctly
+  return formatEventDateForDisplay(date, isAllDay);
 }
 
 export default function EventList({ events, onSelect, emptyStateMessage }: EventListProps) {
@@ -80,10 +80,10 @@ export default function EventList({ events, onSelect, emptyStateMessage }: Event
                   </div>
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                  {formatDate(event.start)}
+                  {formatDate(event.start, !event.timezone)}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                  {formatDate(event.end)}
+                  {formatDate(event.end, !event.timezone)}
                 </td>
                 <td className="px-4 py-4 whitespace-normal text-sm text-gray-700 dark:text-gray-300">
                   {(event.city || event.region || event.country) ? (

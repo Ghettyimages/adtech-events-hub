@@ -9,6 +9,27 @@ import { PREDEFINED_TAGS } from '@/lib/extractor/tagExtractor';
 import TagSelector from '@/components/TagSelector';
 import { getDisplayName } from '@/lib/tags';
 
+/**
+ * Formats a date for display, handling all-day events correctly
+ * For all-day events (timezone is null), extracts UTC date components to avoid timezone shifts
+ * For timed events, formats using local time
+ */
+function formatEventDate(date: Date | string, isAllDay: boolean): string {
+  const d = new Date(date);
+  if (isAllDay) {
+    // For all-day events, extract UTC date components to avoid timezone shifts
+    const year = d.getUTCFullYear();
+    const month = d.getUTCMonth();
+    const day = d.getUTCDate();
+    // Create a date in local timezone with UTC components for formatting
+    const utcDate = new Date(year, month, day);
+    return format(utcDate, 'PP');
+  } else {
+    // For timed events, format using local time
+    return format(d, 'PP');
+  }
+}
+
 interface MonitoredUrl {
   id: string;
   url: string;
@@ -819,7 +840,7 @@ export default function AdminPage() {
                       {event.start && (
                         <div>
                           <strong>Start:</strong>{' '}
-                          {format(new Date(event.start), 'PP')}
+                          {formatEventDate(event.start, !event.timezone)}
                           {event.date_status && (
                             <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
                               event.date_status === 'confirmed'
@@ -833,7 +854,7 @@ export default function AdminPage() {
                       )}
                       {event.end && (
                         <div>
-                          <strong>End:</strong> {format(new Date(event.end), 'PP')}
+                          <strong>End:</strong> {formatEventDate(event.end, !event.timezone)}
                         </div>
                       )}
                       {event.location && (
@@ -1058,10 +1079,10 @@ export default function AdminPage() {
                         </div>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {format(new Date(event.start), 'PP')}
+                        {formatEventDate(event.start, !event.timezone)}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {format(new Date(event.end), 'PP')}
+                        {formatEventDate(event.end, !event.timezone)}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                         {event.location || '—'}
@@ -1125,10 +1146,10 @@ export default function AdminPage() {
                       </div>
                       <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
                         <p>
-                          <strong>Start:</strong> {format(new Date(event.start), 'PP')}
+                          <strong>Start:</strong> {formatEventDate(event.start, !event.timezone)}
                         </p>
                         <p>
-                          <strong>End:</strong> {format(new Date(event.end), 'PP')}
+                          <strong>End:</strong> {formatEventDate(event.end, !event.timezone)}
                         </p>
                         {event.location && (
                           <p>

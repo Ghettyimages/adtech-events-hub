@@ -410,13 +410,37 @@ export default function AdminPage() {
     let endFormatted: string;
     
     if (eventIsAllDay) {
-      // For all-day events, use date-only format (YYYY-MM-DD)
-      startFormatted = startDate.toISOString().slice(0, 10);
-      endFormatted = endDate.toISOString().slice(0, 10);
+      // For all-day events, extract UTC date components to avoid timezone shifts
+      // The dates are stored as UTC, so we need to extract UTC components, not local
+      const startUTC = new Date(Date.UTC(
+        startDate.getUTCFullYear(),
+        startDate.getUTCMonth(),
+        startDate.getUTCDate()
+      ));
+      const endUTC = new Date(Date.UTC(
+        endDate.getUTCFullYear(),
+        endDate.getUTCMonth(),
+        endDate.getUTCDate()
+      ));
+      
+      // Format as YYYY-MM-DD using UTC components
+      startFormatted = startUTC.toISOString().slice(0, 10);
+      endFormatted = endUTC.toISOString().slice(0, 10);
     } else {
       // For timed events, use datetime-local format (YYYY-MM-DDTHH:mm)
-      startFormatted = startDate.toISOString().slice(0, 16);
-      endFormatted = endDate.toISOString().slice(0, 16);
+      // Convert UTC to local time for the input
+      // datetime-local inputs expect local time, so we format using local time methods
+      const formatLocalDateTime = (date: Date): string => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+      };
+      
+      startFormatted = formatLocalDateTime(startDate);
+      endFormatted = formatLocalDateTime(endDate);
     }
     
     setEditFormData({

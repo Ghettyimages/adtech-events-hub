@@ -9,7 +9,7 @@ interface EventListProps {
   emptyStateMessage?: string;
 }
 
-function formatDate(value: Date | string | null, isAllDay: boolean = false) {
+function formatDate(value: Date | string | null, isAllDay: boolean = false, isEndDate: boolean = false) {
   if (!value) {
     return 'TBD';
   }
@@ -20,7 +20,7 @@ function formatDate(value: Date | string | null, isAllDay: boolean = false) {
   }
 
   // Use the shared utility function that handles all-day events correctly
-  return formatEventDateForDisplay(date, isAllDay);
+  return formatEventDateForDisplay(date, isAllDay, isEndDate);
 }
 
 export default function EventList({ events, onSelect, emptyStateMessage }: EventListProps) {
@@ -80,10 +80,10 @@ export default function EventList({ events, onSelect, emptyStateMessage }: Event
                   </div>
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                  {formatDate(event.start, !event.timezone)}
+                  {formatDate(event.start, !event.timezone, false)}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                  {formatDate(event.end, !event.timezone)}
+                  {formatDate(event.end, !event.timezone, true)}
                 </td>
                 <td className="px-4 py-4 whitespace-normal text-sm text-gray-700 dark:text-gray-300">
                   {(event.city || event.region || event.country) ? (

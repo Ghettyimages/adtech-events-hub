@@ -5,14 +5,30 @@ import { format } from 'date-fns';
  * Formats a date for display, handling all-day events correctly
  * For all-day events (timezone is null), extracts UTC date components to avoid timezone shifts
  * For timed events, formats using local time
+ * @param date - The date to format
+ * @param isAllDay - Whether this is an all-day event
+ * @param isEndDate - Whether this is an end date (for all-day events, end dates are stored as next day at UTC noon, so we subtract one day)
  */
-export function formatEventDateForDisplay(date: Date | string, isAllDay: boolean): string {
+export function formatEventDateForDisplay(date: Date | string, isAllDay: boolean, isEndDate: boolean = false): string {
   const d = new Date(date);
   if (isAllDay) {
     // For all-day events, extract UTC date components to avoid timezone shifts
-    const year = d.getUTCFullYear();
-    const month = d.getUTCMonth();
-    const day = d.getUTCDate();
+    // All-day events are stored at UTC noon
+    // End dates are stored as next day at UTC noon (FullCalendar exclusive), so subtract one day for display
+    let year = d.getUTCFullYear();
+    let month = d.getUTCMonth();
+    let day = d.getUTCDate();
+    
+    // If this is an end date and it's at UTC noon, subtract one day
+    // (End dates are stored as next day at noon for FullCalendar's exclusive end date handling)
+    if (isEndDate && d.getUTCHours() === 12 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0) {
+      const endDate = new Date(Date.UTC(year, month, day));
+      endDate.setUTCDate(endDate.getUTCDate() - 1);
+      year = endDate.getUTCFullYear();
+      month = endDate.getUTCMonth();
+      day = endDate.getUTCDate();
+    }
+    
     // Create a date in local timezone with UTC components for formatting
     const utcDate = new Date(year, month, day);
     return format(utcDate, 'PP');

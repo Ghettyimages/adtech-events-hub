@@ -147,10 +147,10 @@ export default function EventCard({ event, onClose }: EventCardProps) {
                 Date
               </h3>
               <p className="text-gray-900 dark:text-gray-100">
-                <strong>Start:</strong> {formatEventDateForDisplay(event.start, !event.timezone)}
+                <strong>Start:</strong> {formatEventDateForDisplay(event.start, !event.timezone, false)}
               </p>
               <p className="text-gray-900 dark:text-gray-100">
-                <strong>End:</strong> {formatEventDateForDisplay(event.end, !event.timezone)}
+                <strong>End:</strong> {formatEventDateForDisplay(event.end, !event.timezone, true)}
               </p>
             </div>
 

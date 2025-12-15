@@ -159,16 +159,17 @@ export default function SubmitEventForm() {
         
         if (isAllDay) {
           // For all-day events, date-only format: "YYYY-MM-DD"
-          // Parse the date components and create UTC dates to avoid timezone shifts
+          // Store at UTC noon to avoid timezone boundary issues
+          // This ensures the date displays correctly regardless of user's timezone
           const [year, month, day] = dateValue.split('-').map(Number);
           
           if (isStart) {
-            // Start of day: 00:00:00 UTC on the selected date
-            const date = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+            // Start: Store at UTC noon on the selected date
+            const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
             return date.toISOString();
           } else {
-            // End of day: 23:59:59.999 UTC on the selected date
-            const date = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+            // End: Store at UTC noon on the next day (FullCalendar uses exclusive end dates for all-day events)
+            const date = new Date(Date.UTC(year, month - 1, day + 1, 12, 0, 0, 0));
             return date.toISOString();
           }
         } else {

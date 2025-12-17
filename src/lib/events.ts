@@ -14,21 +14,10 @@ export function formatEventDateForDisplay(date: Date | string, isAllDay: boolean
   if (isAllDay) {
     // For all-day events, extract UTC date components to avoid timezone shifts
     // All-day events are stored at UTC noon
-    // End dates are stored as next day at UTC noon (FullCalendar exclusive), so subtract one day for display
     let year = d.getUTCFullYear();
     let month = d.getUTCMonth();
     let day = d.getUTCDate();
-    
-    // If this is an end date and it's at UTC noon, subtract one day
-    // (End dates are stored as next day at noon for FullCalendar's exclusive end date handling)
-    if (isEndDate && d.getUTCHours() === 12 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0) {
-      const endDate = new Date(Date.UTC(year, month, day));
-      endDate.setUTCDate(endDate.getUTCDate() - 1);
-      year = endDate.getUTCFullYear();
-      month = endDate.getUTCMonth();
-      day = endDate.getUTCDate();
-    }
-    
+
     // Create a date in local timezone with UTC components for formatting
     const utcDate = new Date(year, month, day);
     return format(utcDate, 'PP');

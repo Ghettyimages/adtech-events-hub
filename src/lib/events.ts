@@ -77,15 +77,33 @@ export function buildGoogleCalendarSubscribeUrl(feedUrl: string): string {
  * Formats an event for FullCalendar
  * Events are all-day if they don't have a timezone (default behavior)
  * Events with a timezone have specific times and should display times
+ * 
+ * Note: FullCalendar uses exclusive end dates for all-day events.
+ * We store inclusive end dates (e.g., Feb 21 at 22:00 UTC for Feb 18-21 event),
+ * so we add one day to the end date for all-day events to display correctly.
  */
 export function formatEventForCalendar(event: Event) {
   // Handle both Date objects and ISO string dates
   const startDate = typeof event.start === 'string' ? event.start : event.start.toISOString();
-  const endDate = typeof event.end === 'string' ? event.end : event.end.toISOString();
+  let endDate = typeof event.end === 'string' ? event.end : event.end.toISOString();
   
   // If timezone is null/undefined, it's an all-day event
   // If timezone is set, it has specific times
   const isAllDay = !event.timezone;
+  
+  // For all-day events, FullCalendar expects exclusive end dates
+  // We store inclusive end dates, so add one day to the end date for calendar display
+  if (isAllDay) {
+    const endDateObj = new Date(endDate);
+    // Extract UTC date components and add one day
+    const endYear = endDateObj.getUTCFullYear();
+    const endMonth = endDateObj.getUTCMonth();
+    const endDay = endDateObj.getUTCDate();
+    
+    // Create new date one day later at 12:00 UTC (same as start time for consistency)
+    const exclusiveEndDate = new Date(Date.UTC(endYear, endMonth, endDay + 1, 12, 0, 0, 0));
+    endDate = exclusiveEndDate.toISOString();
+  }
   
   return {
     id: event.id,

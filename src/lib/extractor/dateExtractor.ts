@@ -53,10 +53,10 @@ const logDebug = (...args: any[]) => {
 const sanitizeEvidence = (text: string): string => text.replace(/\s+/g, ' ').trim().slice(0, 160);
 
 /**
- * Normalize a date to noon UTC if it's a date-only value (no time component)
- * This prevents timezone day boundary issues when displaying dates
+ * Normalize a date to date-only format (YYYY-MM-DD) if it's a date-only value
+ * This allows normalization to properly detect all-day events
  */
-const normalizeDateToNoonUTC = (dateString: string): Date => {
+const normalizeDateToDateOnly = (dateString: string): string => {
   const date = new Date(dateString);
   
   // Check if the date string is date-only (YYYY-MM-DD format)
@@ -65,17 +65,15 @@ const normalizeDateToNoonUTC = (dateString: string): Date => {
                      /^\d{4}-\d{2}-\d{2}T00:00:00/.test(dateString);
   
   if (isDateOnly || (date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0)) {
-    // Normalize to noon UTC to avoid day boundary issues
-    return new Date(Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth(),
-      date.getUTCDate(),
-      12, 0, 0, 0
-    ));
+    // Return date-only format (YYYY-MM-DD) for all-day events
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
   
-  // Preserve existing time
-  return date;
+  // Preserve existing time as ISO string
+  return date.toISOString();
 };
 
 const parseDateMatch = (
@@ -97,11 +95,19 @@ const parseDateMatch = (
   const monthIndex = MONTH_NAMES.findIndex((month) => month.startsWith(monthMatch[0].toLowerCase()));
   if (monthIndex === -1) return null;
 
-  // Use noon UTC instead of midnight to avoid timezone day boundary issues
-  // This ensures dates display correctly regardless of local timezone
-  const startDate = new Date(Date.UTC(yearPart, monthIndex, startDay, 12, 0, 0, 0));
-  const endDate = new Date(Date.UTC(yearPart, monthIndex, endDay, 12, 0, 0, 0));
+  // Return date-only format (YYYY-MM-DD) for all-day events
+  // This allows normalization to properly detect and handle all-day events
+  const startYear = String(yearPart);
+  const startMonth = String(monthIndex + 1).padStart(2, '0');
+  const startDayStr = String(startDay).padStart(2, '0');
+  const endDayStr = String(endDay).padStart(2, '0');
 
+  const startIso = `${startYear}-${startMonth}-${startDayStr}`;
+  const endIso = `${startYear}-${startMonth}-${endDayStr}`;
+
+  // Validate dates
+  const startDate = new Date(startIso);
+  const endDate = new Date(endIso);
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
     return null;
   }
@@ -109,8 +115,8 @@ const parseDateMatch = (
   const evidence = match[0].replace(/\s+/g, ' ').trim();
 
   return {
-    startIso: startDate.toISOString(),
-    endIso: endDate.toISOString(),
+    startIso,
+    endIso,
     evidence,
   };
 };
@@ -136,14 +142,16 @@ const fromJsonLd = (html: string): StrictDateResult | null => {
 
         if (startDate) {
           try {
-            const start = normalizeDateToNoonUTC(startDate);
-            const end = endDate ? normalizeDateToNoonUTC(endDate) : start;
+            const start = normalizeDateToDateOnly(startDate);
+            const end = endDate ? normalizeDateToDateOnly(endDate) : start;
 
-            if (!isNaN(start.getTime())) {
+            // Validate that we got a valid date string
+            const startDateObj = new Date(start);
+            if (!isNaN(startDateObj.getTime())) {
               logDebug('JSON-LD dates found', { start, end });
               return {
-                start: start.toISOString(),
-                end: end.toISOString(),
+                start,
+                end,
                 date_status: 'confirmed',
                 evidence: sanitizeEvidence(`${startDate}${endDate ? ` to ${endDate}` : ''}`),
                 evidence_context: 'json-ld',
@@ -190,14 +198,16 @@ const fromMetaTags = (html: string): StrictDateResult | null => {
 
   if (startDate) {
     try {
-      const start = normalizeDateToNoonUTC(startDate);
-      const end = endDate ? normalizeDateToNoonUTC(endDate) : start;
+      const start = normalizeDateToDateOnly(startDate);
+      const end = endDate ? normalizeDateToDateOnly(endDate) : start;
 
-      if (!isNaN(start.getTime())) {
+      // Validate that we got a valid date string
+      const startDateObj = new Date(start);
+      if (!isNaN(startDateObj.getTime())) {
         logDebug('Meta tag dates found', { start, end });
         return {
-          start: start.toISOString(),
-          end: end.toISOString(),
+          start,
+          end,
           date_status: 'confirmed',
           evidence: sanitizeEvidence(`${startDate}${endDate ? ` to ${endDate}` : ''}`),
           evidence_context: 'meta-tags',

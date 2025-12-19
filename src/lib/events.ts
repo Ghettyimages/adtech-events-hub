@@ -4,10 +4,11 @@ import { format } from 'date-fns';
 /**
  * Formats a date for display, handling all-day events correctly
  * For all-day events (timezone is null), extracts UTC date components to avoid timezone shifts
+ * All-day events are stored with fixed UTC times (start: 12:00 UTC, end: 22:00 UTC) on inclusive calendar days
  * For timed events, formats using local time
  * @param date - The date to format
  * @param isAllDay - Whether this is an all-day event
- * @param isEndDate - Whether this is an end date (for all-day events, end dates are stored as next day at UTC noon, so we subtract one day)
+ * @param isEndDate - Whether this is an end date (unused for all-day events, kept for API compatibility)
  */
 export function formatEventDateForDisplay(date: Date | string, isAllDay: boolean, isEndDate: boolean = false): string {
   const d = new Date(date);

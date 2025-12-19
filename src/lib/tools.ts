@@ -52,8 +52,19 @@ export async function normalize_events(
       const startHasTime = hasTimeComponent(event.start);
       const endHasTime = hasTimeComponent(event.end);
 
+      // Helper to parse date string, handling both date-only (YYYY-MM-DD) and ISO formats
+      const parseDateString = (dateStr: string): Date => {
+        // If it's a date-only string (YYYY-MM-DD), parse explicitly as UTC
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          const [year, month, day] = dateStr.split('-').map(Number);
+          return new Date(Date.UTC(year, month - 1, day));
+        }
+        // Otherwise, use standard Date parsing (handles ISO strings with times)
+        return new Date(dateStr);
+      };
+
       if (event.start) {
-        startDate = new Date(event.start);
+        startDate = parseDateString(event.start);
         if (isNaN(startDate.getTime())) {
           errors.push(`Invalid start date for "${event.title}": ${event.start}`);
           continue;
@@ -61,7 +72,7 @@ export async function normalize_events(
       }
 
       if (event.end) {
-        endDate = new Date(event.end);
+        endDate = parseDateString(event.end);
         if (isNaN(endDate.getTime())) {
           // Use start date if end is invalid
           endDate = startDate;
@@ -76,23 +87,49 @@ export async function normalize_events(
         continue;
       }
 
-      // Ensure end is not before start
-      if (endDate < startDate) {
-        endDate = startDate;
+      // Determine if this is an all-day event (no time component in either start or end)
+      const isAllDay = !startHasTime && !endHasTime;
+
+      // For all-day events, use fixed UTC times to prevent timezone shifts
+      // Start: 12:00 UTC, End: 22:00 UTC on the same calendar days (inclusive)
+      if (isAllDay) {
+        // Extract UTC date components to preserve calendar day
+        const startYear = startDate.getUTCFullYear();
+        const startMonth = startDate.getUTCMonth();
+        const startDay = startDate.getUTCDate();
+        
+        const endYear = endDate.getUTCFullYear();
+        const endMonth = endDate.getUTCMonth();
+        const endDay = endDate.getUTCDate();
+
+        // Set to fixed UTC times: start at 12:00 UTC, end at 22:00 UTC
+        startDate = new Date(Date.UTC(startYear, startMonth, startDay, 12, 0, 0, 0));
+        endDate = new Date(Date.UTC(endYear, endMonth, endDay, 22, 0, 0, 0));
+
+        // Ensure end is not before start (for same-day events)
+        if (endDate < startDate) {
+          endDate = new Date(Date.UTC(startYear, startMonth, startDay, 22, 0, 0, 0));
+        }
+      } else {
+        // For timed events, ensure end is not before start
+        if (endDate < startDate) {
+          endDate = startDate;
+        }
+
+        // Normalize timed events: set to midnight if no time provided
+        if (!startHasTime) {
+          startDate.setHours(0, 0, 0, 0);
+        }
+        if (!endHasTime) {
+          endDate.setHours(23, 59, 59, 999);
+        }
       }
 
-      // If no explicit time was provided, normalize to all-day bounds and drop timezone
-      if (!startHasTime) {
-        startDate.setHours(0, 0, 0, 0);
-      }
-      if (!endHasTime) {
-        endDate.setHours(23, 59, 59, 999);
-      }
-
-      // Only keep timezone when a time was captured or provided explicitly
-      const timezone =
-        event.timezone ||
-        ((startHasTime || endHasTime) ? defaultTimezone : undefined);
+      // Only keep timezone for timed events (when time was captured or provided explicitly)
+      // All-day events should have timezone = null/undefined
+      const timezone = isAllDay
+        ? undefined
+        : (event.timezone || ((startHasTime || endHasTime) ? defaultTimezone : undefined));
 
       // Extract and normalize tags
       const extractedTags = extractTags(event);

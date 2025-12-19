@@ -61,8 +61,13 @@ export async function scrapeUrlGeneric(
             try {
               const parsed = parse(row.date, format, new Date());
               if (!isNaN(parsed.getTime())) {
-                startIso = parsed.toISOString();
-                endIso = parsed.toISOString();
+                // Return date-only format (YYYY-MM-DD) for all-day events
+                // This allows normalization to properly detect and handle all-day events
+                const year = parsed.getFullYear();
+                const month = String(parsed.getMonth() + 1).padStart(2, '0');
+                const day = String(parsed.getDate()).padStart(2, '0');
+                startIso = `${year}-${month}-${day}`;
+                endIso = `${year}-${month}-${day}`;
                 break;
               }
             } catch {

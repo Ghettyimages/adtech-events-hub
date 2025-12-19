@@ -8,42 +8,14 @@ import { format } from 'date-fns';
 import { PREDEFINED_TAGS } from '@/lib/extractor/tagExtractor';
 import TagSelector from '@/components/TagSelector';
 import { getDisplayName } from '@/lib/tags';
+import { formatEventDateForDisplay } from '@/lib/events';
 
 /**
  * Formats a date for display, handling all-day events correctly
- * For all-day events (timezone is null), extracts UTC date components to avoid timezone shifts
- * For timed events, formats using local time
- * @param date - The date to format
- * @param isAllDay - Whether this is an all-day event
- * @param isEndDate - Whether this is an end date (for all-day events, end dates are stored as next day at UTC noon, so we subtract one day)
+ * Uses the shared formatEventDateForDisplay function for consistency
  */
 function formatEventDate(date: Date | string, isAllDay: boolean, isEndDate: boolean = false): string {
-  const d = new Date(date);
-  if (isAllDay) {
-    // For all-day events, extract UTC date components to avoid timezone shifts
-    // All-day events are stored at UTC noon
-    // End dates are stored as next day at UTC noon (FullCalendar exclusive), so subtract one day for display
-    let year = d.getUTCFullYear();
-    let month = d.getUTCMonth();
-    let day = d.getUTCDate();
-    
-    // If this is an end date and it's at UTC noon, subtract one day
-    // (End dates are stored as next day at noon for FullCalendar's exclusive end date handling)
-    if (isEndDate && d.getUTCHours() === 12 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0) {
-      const endDate = new Date(Date.UTC(year, month, day));
-      endDate.setUTCDate(endDate.getUTCDate() - 1);
-      year = endDate.getUTCFullYear();
-      month = endDate.getUTCMonth();
-      day = endDate.getUTCDate();
-    }
-    
-    // Create a date in local timezone with UTC components for formatting
-    const utcDate = new Date(year, month, day);
-    return format(utcDate, 'PP');
-  } else {
-    // For timed events, format using local time
-    return format(d, 'PP');
-  }
+  return formatEventDateForDisplay(date, isAllDay, isEndDate);
 }
 
 interface MonitoredUrl {
@@ -448,8 +420,7 @@ export default function AdminPage() {
     
     if (eventIsAllDay) {
       // For all-day events, extract UTC date components to avoid timezone shifts
-      // All-day events are stored at UTC noon, so we extract the date part
-      // Note: End dates are stored as next day at noon (FullCalendar exclusive), so subtract one day for display
+      // All-day events are stored with fixed UTC times (start: 12:00 UTC, end: 22:00 UTC) on inclusive calendar days
       const startYear = startDate.getUTCFullYear();
       const startMonth = startDate.getUTCMonth();
       const startDay = startDate.getUTCDate();
@@ -458,14 +429,11 @@ export default function AdminPage() {
       const endMonth = endDate.getUTCMonth();
       const endDay = endDate.getUTCDate();
       
-      // End date is stored as next day at noon, so subtract one day for display
-      const endDateAdjusted = new Date(Date.UTC(endYear, endMonth, endDay));
-      endDateAdjusted.setUTCDate(endDateAdjusted.getUTCDate() - 1);
-      
-      // Format as YYYY-MM-DD using UTC components
+      // Format as YYYY-MM-DD using UTC components (inclusive end date, no adjustment needed)
       const startUTC = new Date(Date.UTC(startYear, startMonth, startDay));
+      const endUTC = new Date(Date.UTC(endYear, endMonth, endDay));
       startFormatted = startUTC.toISOString().slice(0, 10);
-      endFormatted = endDateAdjusted.toISOString().slice(0, 10);
+      endFormatted = endUTC.toISOString().slice(0, 10);
     } else {
       // For timed events, use datetime-local format (YYYY-MM-DDTHH:mm)
       // Convert UTC to local time for the input
@@ -570,17 +538,17 @@ export default function AdminPage() {
         
         if (isAllDay) {
           // For all-day events, date-only format: "YYYY-MM-DD"
-          // Store at UTC noon to avoid timezone boundary issues
+          // Store with fixed UTC times: start at 12:00 UTC, end at 22:00 UTC on inclusive calendar days
           // This ensures the date displays correctly regardless of user's timezone
           const [year, month, day] = dateValue.split('-').map(Number);
           
           if (isStart) {
-            // Start: Store at UTC noon on the selected date
+            // Start: Store at 12:00 UTC on the selected date
             const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
             return date.toISOString();
           } else {
-            // End: Store at UTC noon on the next day (FullCalendar uses exclusive end dates for all-day events)
-            const date = new Date(Date.UTC(year, month - 1, day + 1, 12, 0, 0, 0));
+            // End: Store at 22:00 UTC on the selected date (inclusive end date)
+            const date = new Date(Date.UTC(year, month - 1, day, 22, 0, 0, 0));
             return date.toISOString();
           }
         } else {

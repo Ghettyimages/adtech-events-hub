@@ -62,10 +62,12 @@ const parseDateToISO = (value: string | null | undefined): string | undefined =>
   if (!value) return undefined;
   const parsed = parse(value, 'MMM dd, yyyy', new Date());
   if (!isValid(parsed)) return undefined;
-  // Use noon UTC instead of midnight to avoid timezone day boundary issues
-  // This ensures dates display correctly regardless of local timezone
-  const utcDate = new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12, 0, 0, 0));
-  return utcDate.toISOString();
+  // Return date-only format (YYYY-MM-DD) for all-day events
+  // This allows normalization to properly detect and handle all-day events
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const deriveSourceName = (finalUrl: string, provided?: string | null): string | undefined => {
@@ -758,10 +760,19 @@ const parseDateMatch = (
   const monthIndex = MONTH_NAMES.findIndex((month) => month.startsWith(monthMatch[0].toLowerCase()));
   if (monthIndex === -1) return null;
 
-  // Use noon UTC instead of midnight to avoid timezone day boundary issues
-  const startDate = new Date(Date.UTC(yearPart, monthIndex, startDay, 12, 0, 0, 0));
-  const endDate = new Date(Date.UTC(yearPart, monthIndex, endDay, 12, 0, 0, 0));
+  // Return date-only format (YYYY-MM-DD) for all-day events
+  // This allows normalization to properly detect and handle all-day events
+  const startYear = String(yearPart);
+  const startMonth = String(monthIndex + 1).padStart(2, '0');
+  const startDayStr = String(startDay).padStart(2, '0');
+  const endDayStr = String(endDay).padStart(2, '0');
 
+  const startIso = `${startYear}-${startMonth}-${startDayStr}`;
+  const endIso = `${startYear}-${startMonth}-${endDayStr}`;
+
+  // Validate dates
+  const startDate = new Date(startIso);
+  const endDate = new Date(endIso);
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
     return null;
   }
@@ -769,8 +780,8 @@ const parseDateMatch = (
   const evidence = collapseWhitespace(match[0]);
 
   return {
-    startIso: startDate.toISOString(),
-    endIso: endDate.toISOString(),
+    startIso,
+    endIso,
     evidence,
   };
 };

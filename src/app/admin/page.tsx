@@ -65,6 +65,11 @@ export default function AdminPage() {
   const [extractedEvents, setExtractedEvents] = useState<any[]>([]);
   const [extractionMethod, setExtractionMethod] = useState<string | null>(null);
 
+  // CSV upload state
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [csvUploadResult, setCsvUploadResult] = useState<any>(null);
+  const [publishImmediately, setPublishImmediately] = useState(false);
+
   // Edit event state
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [editFormData, setEditFormData] = useState<EventFormData>({});
@@ -304,6 +309,49 @@ export default function AdminPage() {
       setMonitoredUrls(data.urls || []);
     } catch (err: any) {
       console.error('Failed to fetch monitored URLs:', err);
+    }
+  };
+
+  const handleCsvUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setCsvUploading(true);
+    setCsvUploadResult(null);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('publish', publishImmediately.toString());
+
+      const response = await fetch('/api/events/upload-csv', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Upload failed');
+      }
+
+      setCsvUploadResult(result);
+      setSuccessMessage(
+        `✅ CSV uploaded successfully! ${result.stats.success} events processed, ${result.stats.errors} errors.`
+      );
+
+      // Refresh events list
+      fetchPendingEvents();
+      fetchPublishedEvents();
+
+      // Clear file input
+      event.target.value = '';
+    } catch (err: any) {
+      setError(err.message || 'Failed to upload CSV');
+    } finally {
+      setCsvUploading(false);
     }
   };
 
@@ -798,6 +846,112 @@ export default function AdminPage() {
             {scraping ? 'Scraping…' : 'Scrape URL'}
           </button>
         </form>
+      </div>
+
+      {/* CSV Upload Section */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md">
+        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
+          📤 Upload Events from CSV
+        </h2>
+        
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            CSV File Format
+          </label>
+          <div className="text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-3 rounded border border-gray-200 dark:border-gray-600">
+            <p className="mb-2">
+              Required columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">title</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">start</code>
+            </p>
+            <p className="mb-2">
+              Optional columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">location</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">description</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">status</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">tags</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">country</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">region</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">city</code>
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              Date formats: YYYY-MM-DD, MM/DD/YYYY, or ISO format. Tags should be comma-separated.
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={publishImmediately}
+              onChange={(e) => setPublishImmediately(e.target.checked)}
+              className="rounded border-gray-300 dark:border-gray-600"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              Publish events immediately (otherwise they'll be PENDING)
+            </span>
+          </label>
+        </div>
+
+        <div className="flex items-center space-x-4 mb-4">
+          <label className="flex-1">
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCsvUpload}
+              disabled={csvUploading}
+              className="block w-full text-sm text-gray-500 dark:text-gray-400
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900 dark:file:text-blue-200
+                hover:file:bg-blue-100 dark:hover:file:bg-blue-800
+                disabled:opacity-50 disabled:cursor-not-allowed
+                cursor-pointer"
+            />
+          </label>
+          <a
+            href="/api/events/export-csv"
+            download
+            className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition"
+          >
+            📥 Download CSV Template
+          </a>
+        </div>
+
+        {csvUploading && (
+          <div className="mt-4 text-sm text-blue-600 dark:text-blue-400">
+            ⏳ Uploading and processing CSV...
+          </div>
+        )}
+
+        {csvUploadResult && (
+          <div className={`mt-4 p-4 rounded border ${
+            csvUploadResult.stats.errors > 0 
+              ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800' 
+              : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+          }`}>
+            <div className="text-sm">
+              <p className="font-semibold mb-2 text-gray-900 dark:text-white">
+                {csvUploadResult.stats.errors === 0 ? '✅' : '⚠️'} Upload Complete
+              </p>
+              <p className="text-gray-700 dark:text-gray-300">Total rows: {csvUploadResult.stats.total}</p>
+              <p className="text-green-700 dark:text-green-400">Success: {csvUploadResult.stats.success}</p>
+              {csvUploadResult.stats.errors > 0 && (
+                <p className="text-yellow-700 dark:text-yellow-400">Errors: {csvUploadResult.stats.errors}</p>
+              )}
+            </div>
+            
+            {csvUploadResult.errors && csvUploadResult.errors.length > 0 && (
+              <details className="mt-2">
+                <summary className="text-sm font-medium cursor-pointer text-gray-700 dark:text-gray-300">
+                  View errors ({csvUploadResult.errors.length})
+                </summary>
+                <ul className="mt-2 text-xs text-gray-600 dark:text-gray-400 list-disc list-inside space-y-1 max-h-40 overflow-y-auto">
+                  {csvUploadResult.errors.map((err: string, idx: number) => (
+                    <li key={idx}>{err}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+          <p>💡 Tip: Download a sample CSV from your existing events to see the format.</p>
+        </div>
       </div>
 
       {/* Extracted Events Preview Section */}

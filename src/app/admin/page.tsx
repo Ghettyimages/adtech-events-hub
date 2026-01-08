@@ -863,10 +863,13 @@ export default function AdminPage() {
               Required columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">title</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">start</code>
             </p>
             <p className="mb-2">
-              Optional columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">location</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">description</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">status</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">tags</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">country</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">region</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">city</code>
+              Optional columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">location</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">description</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">status</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">tags</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">country</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">region</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">city</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">all_day</code>
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
               Date formats: YYYY-MM-DD, MM/DD/YYYY, or ISO format. Tags should be comma-separated.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">all_day</code> column: Use <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">true</code> or <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">false</code> to explicitly control all-day status. If omitted, auto-detects from date format (no time = all-day).
             </p>
           </div>
         </div>

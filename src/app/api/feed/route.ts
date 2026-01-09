@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
     // Create iCal calendar
     const calendar: ICalCalendar = ical({
-      name: 'AdTech Events Hub',
+      name: 'The Media Calendar',
       description: 'The one-stop-shop for all adtech and media events',
       timezone: process.env.DEFAULT_TIMEZONE || 'America/New_York',
       url: process.env.SITE_URL || 'http://localhost:3000',

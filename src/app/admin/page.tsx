@@ -1543,7 +1543,7 @@ export default function AdminPage() {
                   onClick={() => {
                     setEditingTag(null);
                     setShowTagModal(false);
-                    setTagFormData({ name: '', displayName: '', description: '', color: '' });
+                    setTagFormData({ name: '', displayName: '', description: '', color: '', keywords: '' });
                   }}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
                 >

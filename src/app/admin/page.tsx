@@ -5,7 +5,6 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Event, Tag } from '@prisma/client';
 import { format } from 'date-fns';
-import { PREDEFINED_TAGS } from '@/lib/extractor/tagExtractor';
 import TagSelector from '@/components/TagSelector';
 import { getDisplayName } from '@/lib/tags';
 import { formatEventDateForDisplay } from '@/lib/events';
@@ -87,6 +86,7 @@ export default function AdminPage() {
     displayName: '',
     description: '',
     color: '',
+    keywords: '',
   });
   const [sortBy, setSortBy] = useState<'name' | 'usage' | 'created'>('name');
 
@@ -145,17 +145,29 @@ export default function AdminPage() {
       displayName: '',
       description: '',
       color: '',
+      keywords: '',
     });
     setShowTagModal(true);
   };
 
   const handleEditTag = (tag: Tag) => {
     setEditingTag(tag);
+    // Parse keywords from JSON string to comma-separated string for input
+    let keywordsStr = '';
+    if (tag.keywords) {
+      try {
+        const keywords = JSON.parse(tag.keywords);
+        keywordsStr = Array.isArray(keywords) ? keywords.join(', ') : '';
+      } catch (e) {
+        keywordsStr = '';
+      }
+    }
     setTagFormData({
       name: tag.name,
       displayName: tag.displayName || '',
       description: tag.description || '',
       color: tag.color || '',
+      keywords: keywordsStr,
     });
     setShowTagModal(true);
   };
@@ -167,6 +179,18 @@ export default function AdminPage() {
     }
 
     try {
+      // Parse keywords from comma-separated string to array, then to JSON string
+      let keywordsJson: string | null = null;
+      if (tagFormData.keywords?.trim()) {
+        const keywordsArray = tagFormData.keywords
+          .split(',')
+          .map((k) => k.trim())
+          .filter((k) => k.length > 0);
+        if (keywordsArray.length > 0) {
+          keywordsJson = JSON.stringify(keywordsArray);
+        }
+      }
+
       const url = editingTag ? `/api/tags/${editingTag.id}` : '/api/tags';
       const method = editingTag ? 'PATCH' : 'POST';
       
@@ -178,6 +202,7 @@ export default function AdminPage() {
           displayName: tagFormData.displayName?.trim() || null,
           description: tagFormData.description?.trim() || null,
           color: tagFormData.color?.trim() || null,
+          keywords: keywordsJson,
         }),
       });
 
@@ -189,7 +214,7 @@ export default function AdminPage() {
       await fetchTags();
       setEditingTag(null);
       setShowTagModal(false);
-      setTagFormData({ name: '', displayName: '', description: '', color: '' });
+      setTagFormData({ name: '', displayName: '', description: '', color: '', keywords: '' });
       setFeedback('success', editingTag ? 'Tag updated successfully!' : 'Tag created successfully!');
     } catch (err: any) {
       setFeedback('error', err.message || 'Failed to save tag');
@@ -1604,6 +1629,22 @@ export default function AdminPage() {
                   </p>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Keywords (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={tagFormData.keywords}
+                    onChange={(e) => setTagFormData({ ...tagFormData, keywords: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    placeholder="adtech, ad tech, advertising technology"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Comma-separated keywords for automatic tag extraction (e.g., "adtech, ad tech, advertising technology")
+                  </p>
+                </div>
+
                 <div className="flex gap-3 pt-4 border-t">
                   <button
                     type="submit"
@@ -1616,7 +1657,7 @@ export default function AdminPage() {
                     onClick={() => {
                       setEditingTag(null);
                       setShowTagModal(false);
-                      setTagFormData({ name: '', displayName: '', description: '', color: '' });
+                      setTagFormData({ name: '', displayName: '', description: '', color: '', keywords: '' });
                     }}
                     className="px-6 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition font-semibold"
                   >

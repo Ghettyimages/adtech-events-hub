@@ -16,8 +16,7 @@ import {
   startOfMonth,
 } from 'date-fns';
 import { formatEventForCalendar } from '@/lib/events';
-import { PREDEFINED_TAGS } from '@/lib/extractor/tagExtractor';
-import { mergeTagsWithPredefined, getDisplayName } from '@/lib/tags';
+import { getDisplayName } from '@/lib/tags';
 import EventCard from './EventCard';
 import EventList from './EventList';
 import SubscribeModal from './SubscribeModal';
@@ -144,21 +143,14 @@ export default function Calendar() {
         const res = await fetch('/api/tags?sort=name');
         if (res.ok) {
           const data = await res.json();
-          const databaseTags = data.tags || [];
-          // Merge database tags with predefined tags, deduplicating
-          const merged = mergeTagsWithPredefined(databaseTags, PREDEFINED_TAGS);
-          setAvailableTags(merged);
+          setAvailableTags(data.tags || []);
         } else {
           console.error('Failed to fetch tags');
-          // Fallback to predefined tags only
-          const fallback = PREDEFINED_TAGS.map((tag) => ({ name: tag, displayName: tag }));
-          setAvailableTags(fallback);
+          setAvailableTags([]);
         }
       } catch (error) {
         console.error('Error fetching tags:', error);
-        // Fallback to predefined tags only
-        const fallback = PREDEFINED_TAGS.map((tag) => ({ name: tag, displayName: tag }));
-        setAvailableTags(fallback);
+        setAvailableTags([]);
       } finally {
         setTagsLoading(false);
       }

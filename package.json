@@ -10,7 +10,8 @@
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
-    "seed": "tsx scripts/seed-from-csv.ts"
+    "seed": "tsx scripts/seed-from-csv.ts",
+    "seed:tags": "tsx scripts/seed-tags.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",

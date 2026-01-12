@@ -146,6 +146,7 @@ model Tag {
   displayName String?  // Optional friendly display name
   description String?  // Optional description
   color       String?  // Optional color for UI (hex code)
+  keywords    String?  // JSON array string, e.g., '["keyword1","keyword2"]'
   usageCount  Int      @default(0)  // Cache count of events using this tag
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

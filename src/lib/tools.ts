@@ -37,6 +37,31 @@ export async function normalize_events(
   const normalized: ExtractedEvent[] = [];
   const errors: string[] = [];
 
+  // Fetch tags with keywords from database once per batch
+  let tagKeywordMap: Record<string, string[]> = {};
+  try {
+    const tagsWithKeywords = await prisma.tag.findMany({
+      where: {
+        keywords: { not: null },
+      },
+    });
+
+    // Build keyword map: { tagName: [keyword1, keyword2, ...] }
+    tagsWithKeywords.forEach((tag) => {
+      if (tag.keywords) {
+        try {
+          const keywords = JSON.parse(tag.keywords);
+          tagKeywordMap[tag.name] = Array.isArray(keywords) ? keywords : [];
+        } catch (e) {
+          console.warn(`Invalid keywords JSON for tag ${tag.name}:`, e);
+        }
+      }
+    });
+  } catch (error) {
+    console.warn('Failed to fetch tags with keywords, using fallback:', error);
+    // Continue without tagKeywordMap - extractTags will use hardcoded TAG_KEYWORDS as fallback
+  }
+
   for (const event of events) {
     try {
       // Validate title
@@ -131,8 +156,12 @@ export async function normalize_events(
         ? undefined
         : (event.timezone || ((startHasTime || endHasTime) ? defaultTimezone : undefined));
 
-      // Extract and normalize tags
-      const extractedTags = extractTags(event);
+      // Extract and normalize tags (pass tagKeywordMap if available)
+      const extractedTags = extractTags(
+        event,
+        undefined,
+        Object.keys(tagKeywordMap).length > 0 ? tagKeywordMap : undefined
+      );
       const normalizedTags = normalizeTags(extractedTags.length > 0 ? extractedTags : event.tags || []);
 
       // Parse location string into structured components

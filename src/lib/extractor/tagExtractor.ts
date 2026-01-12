@@ -48,8 +48,15 @@ function normalizeTag(tag: string): string {
 
 /**
  * Extract tags from event data (title, description, source)
+ * @param event - The event to extract tags from
+ * @param html - Optional HTML content to search
+ * @param tagKeywordMap - Optional map of tag names to keywords (from database). If not provided, uses hardcoded TAG_KEYWORDS as fallback.
  */
-export function extractTags(event: ExtractedEvent, html?: string): string[] {
+export function extractTags(
+  event: ExtractedEvent,
+  html?: string,
+  tagKeywordMap?: Record<string, string[]>
+): string[] {
   const tags = new Set<string>();
 
   // If tags already provided in event, use them (normalized)
@@ -61,6 +68,9 @@ export function extractTags(event: ExtractedEvent, html?: string): string[] {
       }
     }
   }
+
+  // Use provided tagKeywordMap or fall back to hardcoded TAG_KEYWORDS
+  const keywordMap = tagKeywordMap || TAG_KEYWORDS;
 
   // Combine all text from event for keyword matching
   const searchText = [
@@ -74,7 +84,7 @@ export function extractTags(event: ExtractedEvent, html?: string): string[] {
     .toLowerCase();
 
   // Match keywords to tags
-  for (const [tag, keywords] of Object.entries(TAG_KEYWORDS)) {
+  for (const [tag, keywords] of Object.entries(keywordMap)) {
     for (const keyword of keywords) {
       if (searchText.includes(keyword.toLowerCase())) {
         tags.add(tag);
@@ -99,7 +109,7 @@ export function extractTags(event: ExtractedEvent, html?: string): string[] {
   // Extract from HTML if provided
   if (html) {
     const htmlLower = html.toLowerCase();
-    for (const [tag, keywords] of Object.entries(TAG_KEYWORDS)) {
+    for (const [tag, keywords] of Object.entries(keywordMap)) {
       for (const keyword of keywords) {
         if (htmlLower.includes(keyword.toLowerCase())) {
           tags.add(tag);

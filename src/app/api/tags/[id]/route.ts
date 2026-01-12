@@ -8,6 +8,12 @@ const updateTagSchema = z.object({
   displayName: z.string().max(100).optional().nullable(),
   description: z.string().max(500).optional().nullable(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
+  keywords: z.union([
+    z.string(), // JSON string
+    z.array(z.string()), // Array of strings
+    z.null(),
+    z.undefined(),
+  ]).optional().nullable(),
 });
 
 export async function GET(
@@ -83,6 +89,34 @@ export async function PATCH(
     }
     if (validatedData.color !== undefined) {
       updateData.color = validatedData.color || null;
+    }
+    if (validatedData.keywords !== undefined) {
+      // Process keywords: convert array to JSON string if needed, or use string as-is
+      let keywordsJson: string | null = null;
+      if (validatedData.keywords) {
+        if (Array.isArray(validatedData.keywords)) {
+          keywordsJson = JSON.stringify(validatedData.keywords);
+        } else if (typeof validatedData.keywords === 'string') {
+          // If it's already a JSON string, validate it's valid JSON
+          try {
+            const parsed = JSON.parse(validatedData.keywords);
+            if (Array.isArray(parsed)) {
+              keywordsJson = validatedData.keywords;
+            } else {
+              return NextResponse.json(
+                { error: 'Keywords must be a JSON array of strings' },
+                { status: 400 }
+              );
+            }
+          } catch (e) {
+            return NextResponse.json(
+              { error: 'Keywords must be a valid JSON array string' },
+              { status: 400 }
+            );
+          }
+        }
+      }
+      updateData.keywords = keywordsJson;
     }
 
     // Update tag

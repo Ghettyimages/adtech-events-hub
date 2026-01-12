@@ -15,35 +15,47 @@ export async function GET(request: NextRequest) {
     const sort = searchParams.get('sort') || 'date';
 
     // Build where clause
-    const where: any = {
+    const baseWhere: any = {
       status: status || 'PUBLISHED',
     };
 
-    // Add tag filtering (array contains any of the specified tags)
-    if (tags) {
-      const tagArray = tags.split(',').map((t) => t.trim()).filter(Boolean);
-      if (tagArray.length > 0) {
-        where.tags = {
-          hasSome: tagArray,
-        };
-      }
-    }
-
     // Add location filtering
     if (country) {
-      where.country = country;
+      baseWhere.country = country;
     }
     if (region) {
-      where.region = region;
+      baseWhere.region = region;
     }
     if (city) {
       // Case-insensitive search (SQLite doesn't support mode: 'insensitive', but we can use contains)
-      where.city = {
+      baseWhere.city = {
         contains: city,
       };
     }
     if (source) {
-      where.source = source;
+      baseWhere.source = source;
+    }
+
+    // Add tag filtering (JSON array string contains any of the specified tags)
+    let where: any = baseWhere;
+    if (tags) {
+      const tagArray = tags.split(',').map((t) => t.trim()).filter(Boolean);
+      if (tagArray.length > 0) {
+        // Since tags is stored as JSON string, we check if the JSON string contains any of the tag names
+        // Combine base filters with tag filter using AND
+        where = {
+          AND: [
+            baseWhere,
+            {
+              OR: tagArray.map((tag) => ({
+                tags: {
+                  contains: `"${tag}"`, // Check if JSON array contains the tag as a string (e.g., "tag1" in ["tag1","tag2"])
+                },
+              })),
+            },
+          ],
+        };
+      }
     }
 
     // Build orderBy clause

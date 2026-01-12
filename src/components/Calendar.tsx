@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import { Event } from '@prisma/client';
+import { Event, Tag } from '@prisma/client';
 import {
   addDays,
   endOfDay,
@@ -17,6 +17,7 @@ import {
 } from 'date-fns';
 import { formatEventForCalendar } from '@/lib/events';
 import { PREDEFINED_TAGS } from '@/lib/extractor/tagExtractor';
+import { mergeTagsWithPredefined, getDisplayName } from '@/lib/tags';
 import EventCard from './EventCard';
 import EventList from './EventList';
 import SubscribeModal from './SubscribeModal';
@@ -58,6 +59,8 @@ export default function Calendar() {
     searchParams.get('sort') || 'date'
   );
   const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [availableTags, setAvailableTags] = useState<Array<Tag | { name: string; displayName: string }>>([]);
+  const [tagsLoading, setTagsLoading] = useState(true);
 
   const calendarRef = useRef<FullCalendar>(null);
 
@@ -132,6 +135,37 @@ export default function Calendar() {
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
+
+  // Fetch tags from API
+  useEffect(() => {
+    const fetchTags = async () => {
+      try {
+        setTagsLoading(true);
+        const res = await fetch('/api/tags?sort=name');
+        if (res.ok) {
+          const data = await res.json();
+          const databaseTags = data.tags || [];
+          // Merge database tags with predefined tags, deduplicating
+          const merged = mergeTagsWithPredefined(databaseTags, PREDEFINED_TAGS);
+          setAvailableTags(merged);
+        } else {
+          console.error('Failed to fetch tags');
+          // Fallback to predefined tags only
+          const fallback = PREDEFINED_TAGS.map((tag) => ({ name: tag, displayName: tag }));
+          setAvailableTags(fallback);
+        }
+      } catch (error) {
+        console.error('Error fetching tags:', error);
+        // Fallback to predefined tags only
+        const fallback = PREDEFINED_TAGS.map((tag) => ({ name: tag, displayName: tag }));
+        setAvailableTags(fallback);
+      } finally {
+        setTagsLoading(false);
+      }
+    };
+
+    fetchTags();
+  }, []);
 
   // Fetch feedToken when authenticated
   useEffect(() => {
@@ -420,20 +454,27 @@ export default function Calendar() {
         {/* Active filter chips (always visible when filters are active) */}
         {hasActiveFilters && (
           <div className="flex flex-wrap gap-2">
-            {selectedTags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-              >
-                Tag: {tag}
-                <button
-                  onClick={() => handleTagToggle(tag)}
-                  className="hover:text-blue-600 dark:hover:text-blue-300"
+            {selectedTags.map((tagName) => {
+              const tag = availableTags.find((t) => t.name === tagName);
+              const displayName = tag ? getDisplayName(tag) : tagName;
+              const tagColor = 'color' in tag && tag.color ? tag.color : undefined;
+              
+              return (
+                <span
+                  key={tagName}
+                  className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                  style={tagColor ? { backgroundColor: tagColor + '20', color: tagColor } : undefined}
                 >
-                  ×
-                </button>
-              </span>
-            ))}
+                  Tag: {displayName}
+                  <button
+                    onClick={() => handleTagToggle(tagName)}
+                    className="hover:text-blue-600 dark:hover:text-blue-300 ml-1"
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
             {filterCountry && (
               <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                 Country: {filterCountry}
@@ -520,17 +561,36 @@ export default function Calendar() {
                 Tags
               </label>
               <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border border-gray-300 p-2 dark:border-gray-700">
-                {PREDEFINED_TAGS.map((tag) => (
-                  <label key={tag} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedTags.includes(tag)}
-                      onChange={() => handleTagToggle(tag)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-gray-700 dark:text-gray-300">{tag}</span>
-                  </label>
-                ))}
+                {tagsLoading ? (
+                  <div className="px-2 py-1 text-sm text-gray-500">Loading tags...</div>
+                ) : availableTags.length === 0 ? (
+                  <div className="px-2 py-1 text-sm text-gray-500">No tags available</div>
+                ) : (
+                  availableTags.map((tag) => {
+                    const displayName = getDisplayName(tag);
+                    const tagColor = 'color' in tag && tag.color ? tag.color : undefined;
+                    const isSelected = selectedTags.includes(tag.name);
+                    
+                    return (
+                      <label key={tag.name} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded px-1 py-0.5">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleTagToggle(tag.name)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="flex-1 text-gray-700 dark:text-gray-300">{displayName}</span>
+                        {tagColor && (
+                          <span
+                            className="h-3 w-3 rounded-full"
+                            style={{ backgroundColor: tagColor }}
+                            title={`Tag color: ${tagColor}`}
+                          />
+                        )}
+                      </label>
+                    );
+                  })
+                )}
               </div>
             </div>
 

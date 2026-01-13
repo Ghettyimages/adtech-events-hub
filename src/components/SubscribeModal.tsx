@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 
 interface SubscribeModalProps {
@@ -26,8 +27,13 @@ export default function SubscribeModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [mounted, setMounted] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!isOpen || !mounted) return null;
 
   const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
   const fullFeedUrl = feedToken ? `${siteUrl}/api/feed/full?token=${feedToken}` : null;
@@ -59,7 +65,7 @@ export default function SubscribeModal({
     onClose();
   };
 
-  return (
+  const modalContent = (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[100]">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col">
         <div className="p-6 overflow-y-auto flex-1 min-h-0">
@@ -227,5 +233,7 @@ export default function SubscribeModal({
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }
 

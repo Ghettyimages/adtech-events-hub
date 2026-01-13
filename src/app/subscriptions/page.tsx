@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import Link from 'next/link';
+import CalendarInstructions from '@/components/CalendarInstructions';
 
 interface Subscription {
   id: string;
@@ -197,6 +198,17 @@ export default function SubscriptionsPage() {
           My Subscriptions
         </h1>
 
+        {/* How to Add to Calendar Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+            How to Add Your Calendar Feed
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            To add your calendar feed to your calendar app, copy the feed URL below and follow the instructions for your calendar provider.
+          </p>
+          <CalendarInstructions />
+        </div>
+
         {/* Google Calendar Integration Section */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
@@ -288,26 +300,34 @@ export default function SubscriptionsPage() {
           </div>
 
           {fullSubscription?.active && fullFeedUrl && (
-            <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                Full Calendar Feed URL:
-              </h3>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={fullFeedUrl}
-                  readOnly
-                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
-                />
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(fullFeedUrl);
-                    alert('Feed URL copied to clipboard!');
-                  }}
-                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
-                >
-                  Copy
-                </button>
+            <div className="mt-4 space-y-4">
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                  Full Calendar Feed URL:
+                </h3>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={fullFeedUrl}
+                    readOnly
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(fullFeedUrl);
+                      alert('Feed URL copied to clipboard!');
+                    }}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                  Add to Your Calendar App:
+                </h3>
+                <CalendarInstructions feedUrl={fullFeedUrl} />
               </div>
             </div>
           )}
@@ -320,26 +340,34 @@ export default function SubscriptionsPage() {
           </h2>
 
           {customFeedUrl && (
-            <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                Custom Calendar Feed URL:
-              </h3>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={customFeedUrl}
-                  readOnly
-                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
-                />
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(customFeedUrl);
-                    alert('Feed URL copied to clipboard!');
-                  }}
-                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
-                >
-                  Copy
-                </button>
+            <div className="mb-4 space-y-4">
+              <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                  Custom Calendar Feed URL:
+                </h3>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customFeedUrl}
+                    readOnly
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(customFeedUrl);
+                      alert('Feed URL copied to clipboard!');
+                    }}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                  Add to Your Calendar App:
+                </h3>
+                <CalendarInstructions feedUrl={customFeedUrl} />
               </div>
             </div>
           )}

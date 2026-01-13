@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import CalendarInstructions from './CalendarInstructions';
 
 interface SubscribeModalProps {
   isOpen: boolean;
@@ -162,8 +163,8 @@ export default function SubscribeModal({
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                   Subscription Active!
                 </h2>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  Your subscription is live. Changes to events will auto-update in your calendar.
+                <p className="text-gray-600 dark:text-gray-400 mb-4">
+                  Your subscription is live. To add this calendar to your calendar app, follow the instructions below.
                 </p>
 
                 {feedToken && (
@@ -217,15 +218,28 @@ export default function SubscribeModal({
                         </div>
                       </div>
                     )}
+
+                    <div className="mt-4">
+                      <CalendarInstructions feedUrl={subscriptionType === 'full' ? fullFeedUrl : customFeedUrl} />
+                    </div>
                   </div>
                 )}
 
-                <button
-                  onClick={handleClose}
-                  className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition font-semibold"
-                >
-                  Done
-                </button>
+                <div className="space-y-3">
+                  <Link
+                    href="/subscriptions"
+                    onClick={handleClose}
+                    className="block w-full text-center px-4 py-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold underline"
+                  >
+                    View in My Subscriptions →
+                  </Link>
+                  <button
+                    onClick={handleClose}
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition font-semibold"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             </>
           )}

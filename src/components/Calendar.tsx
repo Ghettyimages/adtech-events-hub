@@ -449,13 +449,11 @@ export default function Calendar() {
             {selectedTags.map((tagName) => {
               const tag = availableTags.find((t) => t.name === tagName);
               const displayName = tag ? getDisplayName(tag) : tagName;
-              const tagColor = 'color' in tag && tag.color ? tag.color : undefined;
               
               return (
                 <span
                   key={tagName}
                   className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                  style={tagColor ? { backgroundColor: tagColor + '20', color: tagColor } : undefined}
                 >
                   Tag: {displayName}
                   <button
@@ -560,7 +558,6 @@ export default function Calendar() {
                 ) : (
                   availableTags.map((tag) => {
                     const displayName = getDisplayName(tag);
-                    const tagColor = 'color' in tag && tag.color ? tag.color : undefined;
                     const isSelected = selectedTags.includes(tag.name);
                     
                     return (
@@ -572,13 +569,6 @@ export default function Calendar() {
                           className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
                         <span className="flex-1 text-gray-700 dark:text-gray-300">{displayName}</span>
-                        {tagColor && (
-                          <span
-                            className="h-3 w-3 rounded-full"
-                            style={{ backgroundColor: tagColor }}
-                            title={`Tag color: ${tagColor}`}
-                          />
-                        )}
                       </label>
                     );
                   })

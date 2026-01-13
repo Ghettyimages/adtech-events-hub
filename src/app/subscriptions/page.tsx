@@ -327,7 +327,7 @@ export default function SubscriptionsPage() {
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
                   Add to Your Calendar App:
                 </h3>
-                <CalendarInstructions feedUrl={fullFeedUrl} />
+                <CalendarInstructions feedUrl={fullFeedUrl || undefined} />
               </div>
             </div>
           )}
@@ -367,7 +367,7 @@ export default function SubscriptionsPage() {
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
                   Add to Your Calendar App:
                 </h3>
-                <CalendarInstructions feedUrl={customFeedUrl} />
+                <CalendarInstructions feedUrl={customFeedUrl || undefined} />
               </div>
             </div>
           )}

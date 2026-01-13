@@ -220,7 +220,7 @@ export default function SubscribeModal({
                     )}
 
                     <div className="mt-4">
-                      <CalendarInstructions feedUrl={subscriptionType === 'full' ? fullFeedUrl : customFeedUrl} />
+                      <CalendarInstructions feedUrl={subscriptionType === 'full' ? fullFeedUrl || undefined : customFeedUrl || undefined} />
                     </div>
                   </div>
                 )}

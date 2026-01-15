@@ -31,42 +31,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user's subscriptions
-    const subscriptions = await prisma.subscription.findMany({
+    // Ensure FULL subscription is active when Google Calendar is connected
+    // This treats Google Calendar connection the same as subscribing to the full calendar
+    let fullSubscription = await prisma.subscription.findFirst({
       where: {
         userId: session.user.id,
-        active: true,
+        kind: 'FULL',
       },
     });
 
-    const fullSubscription = subscriptions.find((s) => s.kind === 'FULL');
-    const customSubscription = subscriptions.find((s) => s.kind === 'CUSTOM');
-
-    if (!fullSubscription && !customSubscription) {
-      return NextResponse.json(
-        { error: 'No active subscriptions found' },
-        { status: 400 }
-      );
+    if (!fullSubscription) {
+      // Create FULL subscription (active by default)
+      fullSubscription = await prisma.subscription.create({
+        data: {
+          userId: session.user.id,
+          kind: 'FULL',
+          active: true,
+        },
+      });
+    } else if (!fullSubscription.active) {
+      // Activate existing FULL subscription
+      fullSubscription = await prisma.subscription.update({
+        where: { id: fullSubscription.id },
+        data: { active: true },
+      });
     }
 
-    // Get events to sync
-    let eventsToSync: any[] = [];
-    let eventsToUnsync: any[] = [];
-
-    if (fullSubscription) {
-      // Sync all PUBLISHED events
-      const allPublishedEvents = await prisma.event.findMany({
-        where: { status: 'PUBLISHED' },
-      });
-      eventsToSync = allPublishedEvents;
-    } else if (customSubscription) {
-      // Sync only followed events
-      const eventFollows = await prisma.eventFollow.findMany({
-        where: { userId: session.user.id },
-        include: { event: true },
-      });
-      eventsToSync = eventFollows.map((ef) => ef.event).filter((e) => e.status === 'PUBLISHED');
-    }
+    // Since we ensure FULL subscription is active, sync all PUBLISHED events
+    const eventsToSync = await prisma.event.findMany({
+      where: { status: 'PUBLISHED' },
+    });
 
     // Use primary calendar
     const calendarId = 'primary';

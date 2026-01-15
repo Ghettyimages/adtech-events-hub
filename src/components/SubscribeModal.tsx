@@ -142,30 +142,29 @@ export default function SubscribeModal({
             </>
           ) : (
             <>
-              <div className="text-center">
-                <div className="mb-4">
-                  <div className="mx-auto w-16 h-16 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center">
-                    <svg
-                      className="w-8 h-8 text-green-600 dark:text-green-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                  </div>
+              <div className="mb-4 text-center">
+                <div className="mx-auto w-16 h-16 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center">
+                  <svg
+                    className="w-8 h-8 text-green-600 dark:text-green-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                  Subscription Active!
-                </h2>
-                <p className="text-gray-600 dark:text-gray-400 mb-4">
-                  Your subscription is live. To add this calendar to your calendar app, follow the instructions below.
-                </p>
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 text-center">
+                Subscription Active!
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-4 text-center">
+                Your subscription is live. To add this calendar to your calendar app, follow the instructions below.
+              </p>
 
                 {feedToken && (
                   <div className="space-y-4 mb-6">

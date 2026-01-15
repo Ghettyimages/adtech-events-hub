@@ -12,7 +12,6 @@ export async function GET(
       where: { id },
       select: {
         id: true,
-        subscribers: true,
       },
     });
 
@@ -20,8 +19,40 @@ export async function GET(
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
 
+    // Derive subscriber count from:
+    // 1. All users with active FULL subscription
+    // 2. All users who explicitly follow this event
+    // De-dupe by user ID
+
+    const [fullSubscribers, explicitFollowers] = await Promise.all([
+      // Get all users with active FULL subscription
+      prisma.subscription.findMany({
+        where: {
+          kind: 'FULL',
+          active: true,
+        },
+        select: {
+          userId: true,
+        },
+      }),
+      // Get all users who explicitly follow this event
+      prisma.eventFollow.findMany({
+        where: {
+          eventId: id,
+        },
+        select: {
+          userId: true,
+        },
+      }),
+    ]);
+
+    // Merge and dedupe by userId
+    const subscriberUserIds = new Set<string>();
+    fullSubscribers.forEach((sub) => subscriberUserIds.add(sub.userId));
+    explicitFollowers.forEach((follow) => subscriberUserIds.add(follow.userId));
+
     return NextResponse.json({
-      subscribers: event.subscribers,
+      subscribers: subscriberUserIds.size,
     });
   } catch (error: any) {
     console.error('Error fetching event stats:', error);

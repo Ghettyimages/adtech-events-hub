@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import CalendarInstructions from '@/components/CalendarInstructions';
+import { buildGoogleCalendarSubscribeUrl } from '@/lib/events';
 
 interface Subscription {
   id: string;
@@ -251,13 +252,25 @@ export default function SubscriptionsPage() {
                 </div>
               )}
 
-              <button
-                onClick={handleSyncNow}
-                disabled={isSyncing}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSyncing ? 'Syncing...' : 'Sync Now'}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                {fullFeedUrl && (
+                  <a
+                    href={buildGoogleCalendarSubscribeUrl(fullFeedUrl)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold"
+                  >
+                    📆 Subscribe in Google Calendar
+                  </a>
+                )}
+                <button
+                  onClick={handleSyncNow}
+                  disabled={isSyncing}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSyncing ? 'Syncing...' : 'Sync Now'}
+                </button>
+              </div>
             </div>
           ) : (
             <button
@@ -305,7 +318,7 @@ export default function SubscriptionsPage() {
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
                   Full Calendar Feed URL:
                 </h3>
-                <div className="flex gap-2">
+                <div className="flex gap-2 mb-3">
                   <input
                     type="text"
                     value={fullFeedUrl}
@@ -322,6 +335,14 @@ export default function SubscriptionsPage() {
                     Copy
                   </button>
                 </div>
+                <a
+                  href={buildGoogleCalendarSubscribeUrl(fullFeedUrl)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm"
+                >
+                  📆 Subscribe in Google Calendar
+                </a>
               </div>
               <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">

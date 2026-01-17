@@ -239,7 +239,6 @@ export default function SubscribeModal({
                     Done
                   </button>
                 </div>
-              </div>
             </>
           )}
         </div>

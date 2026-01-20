@@ -52,6 +52,18 @@ export async function PATCH(
         data: { status: validatedData.status },
       });
 
+      // If event is PUBLISHED, mark all connected users as needing sync
+      if (event.status === 'PUBLISHED') {
+        await prisma.user.updateMany({
+          where: {
+            gcalSyncEnabled: true,
+          },
+          data: {
+            gcalSyncPending: true,
+          },
+        });
+      }
+
       return NextResponse.json({ event });
     }
 
@@ -165,6 +177,19 @@ export async function PATCH(
       where: { id },
       data: updateData,
     });
+
+    // If event is PUBLISHED (either newly published or updated while published),
+    // mark all connected users as needing sync
+    if (event.status === 'PUBLISHED') {
+      await prisma.user.updateMany({
+        where: {
+          gcalSyncEnabled: true,
+        },
+        data: {
+          gcalSyncPending: true,
+        },
+      });
+    }
 
     console.log('Event updated successfully:', event.id);
     return NextResponse.json({ event });

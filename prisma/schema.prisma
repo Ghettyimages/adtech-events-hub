@@ -70,6 +70,13 @@ model User {
   isAdmin             Boolean  @default(false)
   // Token for personal iCal feeds
   feedToken     String?  @unique
+  // Google Calendar integration
+  gcalCalendarId      String?  // Dedicated calendar ID created in Google
+  gcalSyncEnabled     Boolean  @default(false) // User opted in / connected
+  gcalSyncPending     Boolean  @default(false) // Queued for background sync
+  gcalLastSyncedAt    DateTime? // Incremental sync cursor
+  gcalLastSyncError   String? // Last sync error message
+  gcalLastSyncAttemptAt DateTime? // Last sync attempt timestamp
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   // NextAuth relations (if using Auth.js adapter)

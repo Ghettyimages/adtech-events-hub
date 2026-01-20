@@ -232,3 +232,79 @@ export function convertEventToGoogleCalendar(event: {
   };
 }
 
+/**
+ * Ensure a dedicated calendar exists for a user
+ * Creates the calendar if it doesn't exist, returns the calendar ID
+ */
+export async function ensureDedicatedCalendar(
+  accessToken: string,
+  refreshToken: string | undefined
+): Promise<string> {
+  const calendar = getCalendarClient(accessToken, refreshToken);
+
+  try {
+    // Try to create the calendar
+    const created = await calendar.calendars.insert({
+      requestBody: {
+        summary: 'The Media Calendar',
+        description: 'Synced events from themediacalendar.com',
+        timeZone: process.env.DEFAULT_TIMEZONE || 'America/New_York',
+      },
+    });
+
+    return created.data.id!;
+  } catch (error: any) {
+    // If calendar already exists (409), try to find it by name
+    // With calendar.app.created scope, we can list calendars we created
+    if (error.code === 409 || error.message?.includes('already exists')) {
+      try {
+        // List calendars and find ours
+        const calendars = await calendar.calendarList.list();
+        const mediaCalendar = calendars.data.items?.find(
+          (cal) => cal.summary === 'The Media Calendar'
+        );
+        if (mediaCalendar?.id) {
+          return mediaCalendar.id;
+        }
+      } catch (listError: any) {
+        // If listing fails, throw original error
+        console.warn('Failed to list calendars after creation conflict:', listError);
+      }
+    }
+    throw error;
+  }
+}
+
+/**
+ * Refresh access token and update Account in database
+ */
+export async function refreshAndUpdateToken(
+  accountId: string,
+  accessToken: string,
+  refreshToken: string | undefined
+): Promise<{ accessToken: string; refreshToken?: string; expiresAt?: number }> {
+  if (!refreshToken) {
+    throw new Error('No refresh token available');
+  }
+
+  const auth = getGoogleAuthClient(accessToken, refreshToken);
+  const { credentials } = await auth.refreshAccessToken();
+
+  // Update Account in database
+  const { prisma } = await import('@/lib/db');
+  await prisma.account.update({
+    where: { id: accountId },
+    data: {
+      access_token: credentials.access_token || undefined,
+      refresh_token: credentials.refresh_token || refreshToken,
+      expires_at: credentials.expiry_date ? Math.floor(credentials.expiry_date / 1000) : undefined,
+    },
+  });
+
+  return {
+    accessToken: credentials.access_token!,
+    refreshToken: credentials.refresh_token || refreshToken,
+    expiresAt: credentials.expiry_date ? Math.floor(credentials.expiry_date / 1000) : undefined,
+  };
+}
+

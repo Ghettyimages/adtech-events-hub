@@ -4,6 +4,7 @@ import Google from 'next-auth/providers/google';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import { prisma } from '@/lib/db';
 import { verifyPassword } from '@/lib/password';
+import { ensureDedicatedCalendar } from '@/lib/gcal';
 
 // Use Web Crypto to generate tokens so this works in both Node and Edge runtimes
 const generateFeedToken = () => {
@@ -65,7 +66,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
       authorization: {
         params: {
-          scope: 'openid email profile https://www.googleapis.com/auth/calendar',
+          scope: 'openid email profile https://www.googleapis.com/auth/calendar.app.created',
           access_type: 'offline',
           prompt: 'consent',
         },
@@ -172,6 +173,50 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   session: {
     strategy: 'jwt', // Changed to JWT for better compatibility with credentials provider
+  },
+  events: {
+    async linkAccount({ account, user }) {
+      // When a Google account is linked, create dedicated calendar and enable sync
+      if (account.provider === 'google' && account.access_token && user.id) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: { gcalCalendarId: true },
+          });
+
+          // Only create calendar if it doesn't exist
+          if (!dbUser?.gcalCalendarId) {
+            const calendarId = await ensureDedicatedCalendar(
+              account.access_token,
+              account.refresh_token || undefined
+            );
+
+            // Update user with calendar ID and enable sync
+            await prisma.user.update({
+              where: { id: user.id },
+              data: {
+                gcalCalendarId: calendarId,
+                gcalSyncEnabled: true,
+                gcalSyncPending: true,
+              },
+            });
+          } else {
+            // Calendar exists, just enable sync if not already enabled
+            await prisma.user.update({
+              where: { id: user.id },
+              data: {
+                gcalSyncEnabled: true,
+                gcalSyncPending: true,
+              },
+            });
+          }
+        } catch (error) {
+          console.error('Error creating dedicated calendar on account link:', error);
+          // Don't throw - allow account linking to succeed even if calendar creation fails
+          // The ensure endpoint can handle it later
+        }
+      }
+    },
   },
 });
 

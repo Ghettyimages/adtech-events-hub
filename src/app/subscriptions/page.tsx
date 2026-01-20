@@ -38,7 +38,17 @@ export default function SubscriptionsPage() {
   const [isToggling, setIsToggling] = useState(false);
   const [unfollowingId, setUnfollowingId] = useState<string | null>(null);
   const [gcalConnected, setGcalConnected] = useState(false);
+  const [gcalSyncEnabled, setGcalSyncEnabled] = useState(false);
+  const [gcalSyncStatus, setGcalSyncStatus] = useState<{
+    enabled: boolean;
+    pending: boolean;
+    calendarId: string | null;
+    lastSyncedAt: string | null;
+    lastSyncError: string | null;
+    lastSyncAttemptAt: string | null;
+  } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
@@ -77,6 +87,19 @@ export default function SubscriptionsPage() {
       if (response.ok) {
         const data = await response.json();
         setGcalConnected(data.connected || false);
+        setGcalSyncEnabled(data.sync?.enabled || false);
+        setGcalSyncStatus(data.sync || null);
+        
+        // If connected but calendar not ensured, call ensure endpoint
+        if (data.connected && !data.sync?.calendarId) {
+          try {
+            await fetch('/api/mine/gcal/ensure', { method: 'POST' });
+            // Refresh status after ensure
+            await checkGoogleCalendarStatus();
+          } catch (error) {
+            console.error('Error ensuring calendar:', error);
+          }
+        }
       }
     } catch (error) {
       console.error('Error checking Google Calendar status:', error);
@@ -86,6 +109,42 @@ export default function SubscriptionsPage() {
   const handleConnectGoogleCalendar = async () => {
     // Use NextAuth's client helper (Auth.js v5 can error on direct /api/auth/signin/google navigation)
     await signIn('google', { callbackUrl: '/subscriptions', redirect: true });
+  };
+
+  const handleDisconnectGoogleCalendar = async () => {
+    if (!confirm('Are you sure you want to disconnect Google Calendar? This will stop syncing events to your calendar.')) {
+      return;
+    }
+
+    setIsDisconnecting(true);
+    try {
+      const response = await fetch('/api/mine/gcal/disconnect', {
+        method: 'POST',
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setGcalConnected(false);
+        setGcalSyncEnabled(false);
+        setGcalSyncStatus(null);
+        setSyncResult({
+          success: true,
+          message: data.message || 'Google Calendar disconnected successfully',
+        });
+      } else {
+        setSyncResult({
+          success: false,
+          message: data.error || 'Failed to disconnect Google Calendar',
+        });
+      }
+    } catch (error: any) {
+      setSyncResult({
+        success: false,
+        message: error.message || 'An error occurred while disconnecting',
+      });
+    } finally {
+      setIsDisconnecting(false);
+    }
   };
 
   const handleSyncNow = async () => {
@@ -221,16 +280,54 @@ export default function SubscriptionsPage() {
 
           {gcalConnected ? (
             <div className="space-y-4">
-              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                <span className="font-medium">Google Calendar Connected</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  <span className="font-medium">Google Calendar Connected</span>
+                </div>
+                <button
+                  onClick={handleDisconnectGoogleCalendar}
+                  disabled={isDisconnecting}
+                  className="px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50"
+                >
+                  {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                </button>
               </div>
+
+              {gcalSyncEnabled && gcalSyncStatus && (
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                  <div className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">Auto-sync:</span>
+                      <span className={gcalSyncStatus.pending ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400'}>
+                        {gcalSyncStatus.pending ? 'Pending' : 'Active'}
+                      </span>
+                    </div>
+                    {gcalSyncStatus.lastSyncedAt && (
+                      <div>
+                        <span className="font-medium">Last synced:</span>{' '}
+                        {format(new Date(gcalSyncStatus.lastSyncedAt), 'PPp')}
+                      </div>
+                    )}
+                    {gcalSyncStatus.lastSyncError && (
+                      <div className="text-red-600 dark:text-red-400">
+                        <span className="font-medium">Last error:</span> {gcalSyncStatus.lastSyncError}
+                      </div>
+                    )}
+                    {gcalSyncStatus.calendarId && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        Dedicated calendar created
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {syncResult && (
                 <div
@@ -268,7 +365,7 @@ export default function SubscriptionsPage() {
                   disabled={isSyncing}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSyncing ? 'Syncing...' : 'Sync Now'}
+                  {isSyncing ? 'Syncing...' : 'Sync Now (Manual)'}
                 </button>
               </div>
             </div>

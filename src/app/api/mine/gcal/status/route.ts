@@ -23,6 +23,19 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Get user's Google Calendar sync state
+    const dbUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: {
+        gcalCalendarId: true,
+        gcalSyncEnabled: true,
+        gcalSyncPending: true,
+        gcalLastSyncedAt: true,
+        gcalLastSyncError: true,
+        gcalLastSyncAttemptAt: true,
+      },
+    });
+
     return NextResponse.json({
       connected: !!googleAccount,
       account: googleAccount
@@ -32,6 +45,14 @@ export async function GET(request: NextRequest) {
             providerAccountId: googleAccount.providerAccountId,
           }
         : null,
+      sync: {
+        enabled: dbUser?.gcalSyncEnabled || false,
+        pending: dbUser?.gcalSyncPending || false,
+        calendarId: dbUser?.gcalCalendarId || null,
+        lastSyncedAt: dbUser?.gcalLastSyncedAt?.toISOString() || null,
+        lastSyncError: dbUser?.gcalLastSyncError || null,
+        lastSyncAttemptAt: dbUser?.gcalLastSyncAttemptAt?.toISOString() || null,
+      },
     });
   } catch (error: any) {
     console.error('Error checking Google Calendar status:', error);

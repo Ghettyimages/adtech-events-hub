@@ -6,6 +6,7 @@ import {
   deleteEventFromGoogleCalendar,
   convertEventToGoogleCalendar,
   generateEventICalUID,
+  ensureDedicatedCalendar,
 } from '@/lib/gcal';
 
 export async function POST(request: NextRequest) {
@@ -57,13 +58,29 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Get user's calendar ID (ensure it exists)
+    let calendarId = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { gcalCalendarId: true },
+    }).then((u) => u?.gcalCalendarId);
+
+    if (!calendarId) {
+      // Create dedicated calendar if it doesn't exist
+      calendarId = await ensureDedicatedCalendar(
+        googleAccount.access_token,
+        googleAccount.refresh_token || undefined
+      );
+      await prisma.user.update({
+        where: { id: session.user.id },
+        data: { gcalCalendarId: calendarId },
+      });
+    }
+
     // Since we ensure FULL subscription is active, sync all PUBLISHED events
     const eventsToSync = await prisma.event.findMany({
       where: { status: 'PUBLISHED' },
     });
 
-    // Use primary calendar
-    const calendarId = 'primary';
     const accessToken = googleAccount.access_token;
     const refreshToken = googleAccount.refresh_token || undefined;
 

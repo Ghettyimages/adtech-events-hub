@@ -137,6 +137,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Note: If event is created as PUBLISHED, we'd mark users as pending here
+    // But since it's PENDING, we'll handle it when admin approves
+
     return NextResponse.json({ event }, { status: 201 });
   } catch (error: any) {
     console.error('Error creating event:', error);

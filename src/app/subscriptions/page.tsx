@@ -49,6 +49,7 @@ export default function SubscriptionsPage() {
   } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
@@ -144,6 +145,40 @@ export default function SubscriptionsPage() {
       });
     } finally {
       setIsDisconnecting(false);
+    }
+  };
+
+  const handleCleanupPrimaryCalendar = async () => {
+    if (!confirm('This will delete all events from your primary Google Calendar that were synced by The Media Calendar. This cannot be undone. Continue?')) {
+      return;
+    }
+
+    setIsCleaningUp(true);
+    setSyncResult(null);
+    try {
+      const response = await fetch('/api/mine/gcal/cleanup-primary', {
+        method: 'POST',
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSyncResult({
+          success: true,
+          message: data.message || 'Primary calendar cleaned up successfully',
+        });
+      } else {
+        setSyncResult({
+          success: false,
+          message: data.error || 'Failed to cleanup primary calendar',
+        });
+      }
+    } catch (error: any) {
+      setSyncResult({
+        success: false,
+        message: error.message || 'An error occurred while cleaning up',
+      });
+    } finally {
+      setIsCleaningUp(false);
     }
   };
 
@@ -366,6 +401,19 @@ export default function SubscriptionsPage() {
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSyncing ? 'Syncing...' : 'Sync Now (Manual)'}
+                </button>
+              </div>
+
+              <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  If you previously synced events to your primary calendar, you can clean them up:
+                </p>
+                <button
+                  onClick={handleCleanupPrimaryCalendar}
+                  disabled={isCleaningUp}
+                  className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                >
+                  {isCleaningUp ? 'Cleaning up...' : 'Remove Events from Primary Calendar'}
                 </button>
               </div>
             </div>

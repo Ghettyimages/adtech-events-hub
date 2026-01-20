@@ -1,6 +1,6 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
+import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
@@ -83,9 +83,9 @@ export default function SubscriptionsPage() {
     }
   };
 
-  const handleConnectGoogleCalendar = () => {
-    // Redirect to Google OAuth
-    window.location.href = '/api/auth/signin/google';
+  const handleConnectGoogleCalendar = async () => {
+    // Use NextAuth's client helper (Auth.js v5 can error on direct /api/auth/signin/google navigation)
+    await signIn('google', { callbackUrl: '/subscriptions', redirect: true });
   };
 
   const handleSyncNow = async () => {

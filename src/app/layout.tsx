@@ -45,10 +45,19 @@ export default function RootLayout({
           <main className="min-h-screen">{children}</main>
           <footer className="bg-gray-100 dark:bg-gray-900 border-t mt-12">
             <div className="container mx-auto px-4 py-6 text-center text-gray-600 dark:text-gray-400">
-              <p>
-                AdTech Events Hub &copy; {new Date().getFullYear()} | Built with Next.js, Prisma
-                & FullCalendar
-              </p>
+              <div className="flex flex-col gap-2 items-center">
+                <p>
+                  AdTech Events Hub &copy; {new Date().getFullYear()} | Built with Next.js, Prisma &amp; FullCalendar
+                </p>
+                <div className="flex gap-4 text-sm">
+                  <Link href="/terms" className="hover:underline">
+                    Terms
+                  </Link>
+                  <Link href="/privacy" className="hover:underline">
+                    Privacy
+                  </Link>
+                </div>
+              </div>
             </div>
           </footer>
         </SessionProvider>

@@ -87,6 +87,7 @@ export default function SubscriptionsPage() {
       const response = await fetch('/api/mine/gcal/status');
       if (response.ok) {
         const data = await response.json();
+        console.log('Google Calendar status:', data); // Debug log
         setGcalConnected(data.connected || false);
         setGcalSyncEnabled(data.sync?.enabled || false);
         setGcalSyncStatus(data.sync || null);
@@ -101,6 +102,8 @@ export default function SubscriptionsPage() {
             console.error('Error ensuring calendar:', error);
           }
         }
+      } else {
+        console.error('Failed to fetch Google Calendar status:', response.status);
       }
     } catch (error) {
       console.error('Error checking Google Calendar status:', error);
@@ -329,7 +332,7 @@ export default function SubscriptionsPage() {
                 <button
                   onClick={handleDisconnectGoogleCalendar}
                   disabled={isDisconnecting}
-                  className="px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50"
+                  className="px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50 border border-red-300 dark:border-red-700"
                 >
                   {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
                 </button>
@@ -411,7 +414,7 @@ export default function SubscriptionsPage() {
                 <button
                   onClick={handleCleanupPrimaryCalendar}
                   disabled={isCleaningUp}
-                  className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-sm border-2 border-orange-500"
                 >
                   {isCleaningUp ? 'Cleaning up...' : 'Remove Events from Primary Calendar'}
                 </button>

@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({
+    const responseData = {
       connected: !!googleAccount,
       account: googleAccount
         ? {
@@ -53,7 +53,17 @@ export async function GET(request: NextRequest) {
         lastSyncError: dbUser?.gcalLastSyncError || null,
         lastSyncAttemptAt: dbUser?.gcalLastSyncAttemptAt?.toISOString() || null,
       },
+    };
+
+    console.log('🔍 Status endpoint response:', JSON.stringify(responseData, null, 2));
+    console.log('🔍 Google account found:', !!googleAccount);
+    console.log('🔍 User sync state:', {
+      enabled: dbUser?.gcalSyncEnabled,
+      pending: dbUser?.gcalSyncPending,
+      calendarId: dbUser?.gcalCalendarId,
     });
+
+    return NextResponse.json(responseData);
   } catch (error: any) {
     console.error('Error checking Google Calendar status:', error);
     return NextResponse.json(

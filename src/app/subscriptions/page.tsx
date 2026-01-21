@@ -53,16 +53,23 @@ export default function SubscriptionsPage() {
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
+    console.log('🔍 useEffect triggered - status:', status, 'session:', !!session);
     if (status === 'unauthenticated') {
       router.push('/login?callbackUrl=/subscriptions');
       return;
     }
 
     if (status === 'authenticated' && session) {
+      console.log('🔍 Fetching subscriptions and checking Google Calendar status...');
       fetchSubscriptions();
       checkGoogleCalendarStatus();
     }
   }, [status, session, router]);
+
+  // Debug: Log state changes
+  useEffect(() => {
+    console.log('🔍 State changed - gcalConnected:', gcalConnected);
+  }, [gcalConnected]);
 
   const fetchSubscriptions = async () => {
     try {
@@ -87,10 +94,13 @@ export default function SubscriptionsPage() {
       const response = await fetch('/api/mine/gcal/status');
       if (response.ok) {
         const data = await response.json();
-        console.log('Google Calendar status:', data); // Debug log
+        console.log('🔍 Google Calendar status response:', JSON.stringify(data, null, 2));
+        console.log('🔍 Setting gcalConnected to:', data.connected);
+        console.log('🔍 Setting gcalSyncEnabled to:', data.sync?.enabled);
         setGcalConnected(data.connected || false);
         setGcalSyncEnabled(data.sync?.enabled || false);
         setGcalSyncStatus(data.sync || null);
+        console.log('🔍 State updated - gcalConnected should be:', data.connected);
         
         // If connected but calendar not ensured, call ensure endpoint
         if (data.connected && !data.sync?.calendarId) {
@@ -103,10 +113,12 @@ export default function SubscriptionsPage() {
           }
         }
       } else {
-        console.error('Failed to fetch Google Calendar status:', response.status);
+        console.error('❌ Failed to fetch Google Calendar status:', response.status);
+        const errorText = await response.text();
+        console.error('❌ Error response:', errorText);
       }
     } catch (error) {
-      console.error('Error checking Google Calendar status:', error);
+      console.error('❌ Error checking Google Calendar status:', error);
     }
   };
 
@@ -286,8 +298,12 @@ export default function SubscriptionsPage() {
   }
 
   if (!session) {
+    console.log('🔍 No session, returning null');
     return null;
   }
+
+  // Debug: Log render state
+  console.log('🔍 Rendering subscriptions page - gcalConnected:', gcalConnected);
 
   return (
     <div className="container mx-auto px-4 py-16">
@@ -316,9 +332,56 @@ export default function SubscriptionsPage() {
             Connect your Google Calendar to automatically sync your subscribed events. Changes to events will be updated in your calendar.
           </p>
 
+          {/* Debug Info - Remove after fixing */}
+          <div className="mb-4 p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-400 rounded text-xs">
+            <strong>DEBUG:</strong> gcalConnected={String(gcalConnected)}, 
+            gcalSyncEnabled={String(gcalSyncEnabled)}, 
+            hasStatus={String(!!gcalSyncStatus)}
+          </div>
+
+          {/* Test buttons that always render */}
+          <div className="mb-4 p-3 bg-blue-100 dark:bg-blue-900/20 border border-blue-400 rounded">
+            <p className="text-xs mb-2 font-semibold">TEST BUTTONS (Always Visible):</p>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  console.log('Test Disconnect clicked');
+                  handleDisconnectGoogleCalendar();
+                }}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded border-2 border-red-800"
+              >
+                Test Disconnect
+              </button>
+              <button
+                onClick={() => {
+                  console.log('Test Cleanup clicked');
+                  handleCleanupPrimaryCalendar();
+                }}
+                className="px-4 py-2 text-sm bg-orange-600 text-white rounded border-2 border-orange-800"
+              >
+                Test Cleanup
+              </button>
+              <button
+                onClick={() => {
+                  console.log('Refresh status clicked');
+                  checkGoogleCalendarStatus();
+                }}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded border-2 border-blue-800"
+              >
+                Refresh Status
+              </button>
+            </div>
+          </div>
+
+          {(() => {
+            console.log('🔍 Render check - gcalConnected:', gcalConnected);
+            console.log('🔍 Render check - buttons should render:', gcalConnected);
+            return null;
+          })()}
+          
           {gcalConnected ? (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path
@@ -332,7 +395,8 @@ export default function SubscriptionsPage() {
                 <button
                   onClick={handleDisconnectGoogleCalendar}
                   disabled={isDisconnecting}
-                  className="px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50 border border-red-300 dark:border-red-700"
+                  className="px-6 py-3 text-base font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-50 border-2 border-red-800 shadow-lg min-w-[120px]"
+                  style={{ display: 'block', visibility: 'visible' }}
                 >
                   {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
                 </button>
@@ -407,14 +471,15 @@ export default function SubscriptionsPage() {
                 </button>
               </div>
 
-              <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+              <div className="pt-4 border-t-2 border-gray-300 dark:border-gray-600">
+                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
                   If you previously synced events to your primary calendar, you can clean them up:
                 </p>
                 <button
                   onClick={handleCleanupPrimaryCalendar}
                   disabled={isCleaningUp}
-                  className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-sm border-2 border-orange-500"
+                  className="px-8 py-4 text-base font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed border-4 border-orange-800 shadow-lg w-full sm:w-auto"
+                  style={{ display: 'block', visibility: 'visible' }}
                 >
                   {isCleaningUp ? 'Cleaning up...' : 'Remove Events from Primary Calendar'}
                 </button>

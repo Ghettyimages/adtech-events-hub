@@ -45,28 +45,25 @@ export async function GET(request: NextRequest) {
       url: process.env.SITE_URL || 'http://localhost:3000',
     });
 
-    // Add events to calendar
+    // Add events to calendar - all events are treated as all-day events
     events.forEach((event) => {
-      // If timezone is null, it's an all-day event
-      const isAllDay = !event.timezone;
+      // All events sync as all-day events
+      const isAllDay = true;
       
-      // For all-day events, iCal uses exclusive end dates (day after last day)
-      let endDate = new Date(event.end);
-      if (isAllDay) {
-        const endYear = endDate.getUTCFullYear();
-        const endMonth = endDate.getUTCMonth();
-        const endDay = endDate.getUTCDate();
-        endDate = new Date(Date.UTC(endYear, endMonth, endDay + 1, 12, 0, 0, 0));
-      }
+      // iCal uses exclusive end dates (day after last day)
+      const endDate = new Date(event.end);
+      const endYear = endDate.getUTCFullYear();
+      const endMonth = endDate.getUTCMonth();
+      const endDay = endDate.getUTCDate();
+      const exclusiveEndDate = new Date(Date.UTC(endYear, endMonth, endDay + 1, 12, 0, 0, 0));
       
       calendar.createEvent({
         start: new Date(event.start),
-        end: endDate,
+        end: exclusiveEndDate,
         summary: event.title,
         description: event.description || undefined,
         location: event.location || undefined,
         url: event.url || undefined,
-        timezone: event.timezone || undefined,
         allDay: isAllDay,
       });
     });

@@ -55,8 +55,106 @@ export function generateEventICalUID(eventId: string): string {
 }
 
 /**
+ * Helper to perform the actual upsert operation with a calendar client
+ */
+async function performUpsert(
+  calendar: ReturnType<typeof getCalendarClient>,
+  calendarId: string,
+  event: GoogleCalendarEvent,
+  iCalUID: string
+): Promise<string> {
+  // Try to find existing event by iCalUID
+  const existingEvents = await calendar.events.list({
+    calendarId,
+    iCalUID,
+    maxResults: 1,
+  });
+
+  if (existingEvents.data.items && existingEvents.data.items.length > 0) {
+    // Update existing event - delete and recreate to handle format changes (dateTime -> date)
+    const existingEvent = existingEvents.data.items[0];
+    
+    try {
+      // Try direct update first
+      const updated = await calendar.events.update({
+        calendarId,
+        eventId: existingEvent.id!,
+        requestBody: {
+          ...event,
+          iCalUID,
+          id: existingEvent.id,
+        },
+      });
+      return updated.data.id || '';
+    } catch (updateError: any) {
+      // If update fails (e.g., format change from dateTime to date), delete and recreate
+      console.log(`Update failed for event, deleting and recreating: ${event.summary}`);
+      await calendar.events.delete({
+        calendarId,
+        eventId: existingEvent.id!,
+      });
+      const created = await calendar.events.insert({
+        calendarId,
+        requestBody: {
+          ...event,
+          iCalUID,
+        },
+      });
+      return created.data.id || '';
+    }
+  } else {
+    // Create new event
+    try {
+      const created = await calendar.events.insert({
+        calendarId,
+        requestBody: {
+          ...event,
+          iCalUID,
+        },
+      });
+      return created.data.id || '';
+    } catch (insertError: any) {
+      // Handle "identifier already exists" error (409)
+      // This can happen if the event exists but wasn't found by iCalUID search
+      if (insertError.code === 409 || insertError.message?.includes('already exists')) {
+        console.log(`Event already exists, searching by summary: ${event.summary}`);
+        
+        // Search for the event by time range and summary
+        const searchResults = await calendar.events.list({
+          calendarId,
+          q: event.summary,
+          maxResults: 10,
+        });
+        
+        const matchingEvent = searchResults.data.items?.find(
+          (e) => e.summary === event.summary
+        );
+        
+        if (matchingEvent?.id) {
+          // Delete the old event and create new one
+          await calendar.events.delete({
+            calendarId,
+            eventId: matchingEvent.id,
+          });
+          const created = await calendar.events.insert({
+            calendarId,
+            requestBody: {
+              ...event,
+              iCalUID,
+            },
+          });
+          return created.data.id || '';
+        }
+      }
+      throw insertError;
+    }
+  }
+}
+
+/**
  * Upsert event to Google Calendar
  * Uses iCalUID to find existing events and update them
+ * Handles format changes (dateTime -> date) by deleting and recreating
  */
 export async function upsertEventToGoogleCalendar(
   accessToken: string,
@@ -70,38 +168,7 @@ export async function upsertEventToGoogleCalendar(
   const iCalUID = event.iCalUID || generateEventICalUID(event.id || '');
 
   try {
-    // Try to find existing event by iCalUID
-    // Google Calendar API supports searching by iCalUID directly
-    const existingEvents = await calendar.events.list({
-      calendarId,
-      iCalUID,
-      maxResults: 1,
-    });
-
-    if (existingEvents.data.items && existingEvents.data.items.length > 0) {
-      // Update existing event
-      const existingEvent = existingEvents.data.items[0];
-      const updated = await calendar.events.update({
-        calendarId,
-        eventId: existingEvent.id!,
-        requestBody: {
-          ...event,
-          iCalUID,
-          id: existingEvent.id,
-        },
-      });
-      return updated.data.id || '';
-    } else {
-      // Create new event
-      const created = await calendar.events.insert({
-        calendarId,
-        requestBody: {
-          ...event,
-          iCalUID,
-        },
-      });
-      return created.data.id || '';
-    }
+    return await performUpsert(calendar, calendarId, event, iCalUID);
   } catch (error: any) {
     // If error is due to token expiry, try to refresh
     if (error.code === 401 && refreshToken) {
@@ -110,35 +177,7 @@ export async function upsertEventToGoogleCalendar(
       
       // Retry with new token
       const newCalendar = getCalendarClient(credentials.access_token!, credentials.refresh_token ?? undefined);
-      
-      const existingEvents = await newCalendar.events.list({
-        calendarId,
-        iCalUID,
-        maxResults: 1,
-      });
-
-      if (existingEvents.data.items && existingEvents.data.items.length > 0) {
-        const existingEvent = existingEvents.data.items[0];
-        const updated = await newCalendar.events.update({
-          calendarId,
-          eventId: existingEvent.id!,
-          requestBody: {
-            ...event,
-            iCalUID,
-            id: existingEvent.id,
-          },
-        });
-        return updated.data.id || '';
-      } else {
-        const created = await newCalendar.events.insert({
-          calendarId,
-          requestBody: {
-            ...event,
-            iCalUID,
-          },
-        });
-        return created.data.id || '';
-      }
+      return await performUpsert(newCalendar, calendarId, event, iCalUID);
     }
     throw error;
   }

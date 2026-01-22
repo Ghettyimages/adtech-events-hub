@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import Link from 'next/link';
+import Image from 'next/image';
 import SessionProvider from '@/components/SessionProvider';
 import AuthNav from '@/components/AuthNav';
 
@@ -8,8 +9,14 @@ export const metadata: Metadata = {
   title: 'The Media Calendar',
   description: 'The one-stop-shop for all adtech and media events',
   icons: {
-    icon: '/icon.png',
-    apple: '/icon.png',
+    icon: [
+      { url: '/icon.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icon.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+    shortcut: '/icon.png',
   },
 };
 
@@ -25,8 +32,15 @@ export default function RootLayout({
           <header className="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
             <div className="container mx-auto px-4 py-4">
               <nav className="flex items-center justify-between">
-                <Link href="/" className="text-2xl font-bold hover:opacity-90 transition">
-                  🎯 The Media Calendar
+                <Link href="/" className="flex items-center gap-2 text-2xl font-bold hover:opacity-90 transition">
+                  <Image
+                    src="/logo.png"
+                    alt="TMC Logo"
+                    width={40}
+                    height={40}
+                    className="rounded"
+                  />
+                  The Media Calendar
                 </Link>
                 <div className="flex gap-4 items-center">
                   <Link

@@ -104,8 +104,9 @@ export default function SubscriptionsPage() {
         setGcalSyncStatus(data.sync || null);
         console.log('🔍 State updated - gcalConnected should be:', data.connected);
         
-        // If connected but calendar not ensured, call ensure endpoint
-        if (data.connected && !data.sync?.calendarId) {
+        // If has Google account but sync not enabled, auto-enable it
+        // This handles the reconnect flow after disconnect
+        if (data.hasGoogleAccount && !data.sync?.enabled) {
           try {
             await fetch('/api/mine/gcal/ensure', { method: 'POST' });
             // Refresh status after ensure

@@ -312,34 +312,42 @@ export default function SubscriptionsPage() {
           My Subscriptions
         </h1>
 
-        {/* How to Add to Calendar Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-            How to Add Your Calendar Feed
-          </h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
-            To add your calendar feed to your calendar app, copy the feed URL below and follow the instructions for your calendar provider.
-          </p>
-          <CalendarInstructions />
-        </div>
+        {/* Google Calendar Integration Section - PRIMARY METHOD */}
+        <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg shadow-lg p-6 mb-6 border-2 border-blue-300 dark:border-blue-700">
+          <div className="flex items-center gap-3 mb-4">
+            <svg className="w-8 h-8 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Connect Google Calendar (Recommended)
+            </h2>
+          </div>
 
-        {/* Google Calendar Integration Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-            Google Calendar Integration
-          </h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
-            Connect your Google Calendar to automatically sync your subscribed events. Changes to events will be updated in your calendar.
-          </p>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 mb-4">
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+              <span>✨</span>
+              <span>Best Experience - Automatic Sync</span>
+            </h3>
+            <ul className="list-disc list-inside space-y-1 text-sm text-gray-600 dark:text-gray-400">
+              <li>Creates a dedicated "The Media Calendar" in your Google Calendar</li>
+              <li>Events automatically sync and stay updated</li>
+              <li>You can track which events you're subscribed to</li>
+              <li>Works seamlessly with your existing calendar</li>
+            </ul>
+          </div>
 
-          {/* Debug Info - Remove after fixing */}
+          {/* Debug Info - Keep for debugging */}
           <div className="mb-4 p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-400 rounded text-xs">
             <strong>DEBUG:</strong> gcalConnected={String(gcalConnected)}, 
             gcalSyncEnabled={String(gcalSyncEnabled)}, 
             hasStatus={String(!!gcalSyncStatus)}
           </div>
 
-          {/* Test buttons that always render */}
+          {/* Test buttons that always render - Keep for debugging */}
           <div className="mb-4 p-3 bg-blue-100 dark:bg-blue-900/20 border border-blue-400 rounded">
             <p className="text-xs mb-2 font-semibold">TEST BUTTONS (Always Visible):</p>
             <div className="flex gap-2 flex-wrap">
@@ -402,6 +410,14 @@ export default function SubscriptionsPage() {
                 </button>
               </div>
 
+              {/* Info box when Google Calendar is connected */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  <strong>💡 Tip:</strong> You're using automatic sync! Your events are already being synced to 
+                  "The Media Calendar" in your Google Calendar. You don't need to manually subscribe to feeds.
+                </p>
+              </div>
+
               {gcalSyncEnabled && gcalSyncStatus && (
                 <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                   <div className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
@@ -424,7 +440,7 @@ export default function SubscriptionsPage() {
                     )}
                     {gcalSyncStatus.calendarId && (
                       <div className="text-xs text-gray-500 dark:text-gray-400">
-                        Dedicated calendar created
+                        Dedicated calendar "The Media Calendar" created
                       </div>
                     )}
                   </div>
@@ -452,16 +468,6 @@ export default function SubscriptionsPage() {
               )}
 
               <div className="flex flex-col sm:flex-row gap-3">
-                {fullFeedUrl && (
-                  <a
-                    href={buildGoogleCalendarSubscribeUrl(fullFeedUrl)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold"
-                  >
-                    📆 Subscribe in Google Calendar
-                  </a>
-                )}
                 <button
                   onClick={handleSyncNow}
                   disabled={isSyncing}
@@ -488,147 +494,176 @@ export default function SubscriptionsPage() {
           ) : (
             <button
               onClick={handleConnectGoogleCalendar}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
+              className="w-full px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition font-bold text-lg shadow-lg"
             >
-              Connect Google Calendar
+              🔗 Connect Google Calendar
             </button>
           )}
         </div>
 
-        {/* Full Subscription Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                Full Media Calendar Subscription
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400">
-                {fullSubscription?.active
-                  ? 'You are subscribed to the full calendar. All published events will appear in your feed.'
-                  : 'Subscribe to receive all published events in your calendar feed.'}
-              </p>
-            </div>
-            <button
-              onClick={handleToggleFullSubscription}
-              disabled={isToggling}
-              className={`px-6 py-2 rounded-lg font-semibold transition ${
-                fullSubscription?.active
-                  ? 'bg-red-600 text-white hover:bg-red-700'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              {isToggling
-                ? '...'
-                : fullSubscription?.active
-                ? 'Deactivate'
-                : 'Activate'}
-            </button>
+        {/* Alternative: Manual Feed Subscription Section */}
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg shadow p-6 mb-6 border border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+            Alternative: Manual Feed Subscription
+          </h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            For users who prefer feed subscriptions or use other calendar apps (Apple Calendar, Outlook, etc.)
+          </p>
+
+          {/* How to Add to Calendar Section */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              How to Add Your Calendar Feed
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+              To add your calendar feed to your calendar app, copy the feed URL below and follow the instructions for your calendar provider.
+            </p>
+            <CalendarInstructions />
           </div>
 
-          {fullSubscription?.active && fullFeedUrl && (
-            <div className="mt-4 space-y-4">
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                  Full Calendar Feed URL:
+          {/* Full Subscription Section */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                  Full Media Calendar Subscription
                 </h3>
-                <div className="flex gap-2 mb-3">
-                  <input
-                    type="text"
-                    value={fullFeedUrl}
-                    readOnly
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
-                  />
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(fullFeedUrl);
-                      alert('Feed URL copied to clipboard!');
-                    }}
-                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
-                  >
-                    Copy
-                  </button>
-                </div>
-                <a
-                  href={buildGoogleCalendarSubscribeUrl(fullFeedUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm"
-                >
-                  📆 Subscribe in Google Calendar
-                </a>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {fullSubscription?.active
+                    ? 'You are subscribed to the full calendar. All published events will appear in your feed.'
+                    : 'Subscribe to receive all published events in your calendar feed.'}
+                </p>
               </div>
+              <button
+                onClick={handleToggleFullSubscription}
+                disabled={isToggling}
+                className={`px-4 py-2 rounded-lg font-semibold transition text-sm ${
+                  fullSubscription?.active
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {isToggling
+                  ? '...'
+                  : fullSubscription?.active
+                  ? 'Deactivate'
+                  : 'Activate'}
+              </button>
             </div>
-          )}
-        </div>
 
-        {/* Custom Subscriptions Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-            My Followed Events ({eventFollows.length})
-          </h2>
-
-          {customFeedUrl && (
-            <div className="mb-4 space-y-4">
-              <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                  Custom Calendar Feed URL:
-                </h3>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={customFeedUrl}
-                    readOnly
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
-                  />
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(customFeedUrl);
-                      alert('Feed URL copied to clipboard!');
-                    }}
-                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {eventFollows.length === 0 ? (
-            <p className="text-gray-600 dark:text-gray-400 text-center py-8">
-              You haven't followed any events yet. Browse the calendar and click "Add to My Media Calendar" on events you want to follow.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {eventFollows.map((eventFollow) => (
-                <div
-                  key={eventFollow.id}
-                  className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
-                >
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 dark:text-white">
-                      {eventFollow.event.title}
-                    </h3>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                      <span>
-                        {format(new Date(eventFollow.event.start), 'PP')}
-                      </span>
-                      {eventFollow.event.location && (
-                        <span className="ml-2">• {eventFollow.event.location}</span>
-                      )}
-                    </div>
+            {fullSubscription?.active && fullFeedUrl && (
+              <div className="mt-4 space-y-4">
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                    Full Calendar Feed URL:
+                  </h4>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={fullFeedUrl}
+                      readOnly
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
+                    />
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(fullFeedUrl);
+                        alert('Feed URL copied to clipboard!');
+                      }}
+                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
+                    >
+                      Copy
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleUnfollow(eventFollow.eventId)}
-                    disabled={unfollowingId === eventFollow.eventId}
-                    className="ml-4 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50"
+                  <a
+                    href={buildGoogleCalendarSubscribeUrl(fullFeedUrl)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm"
                   >
-                    {unfollowingId === eventFollow.eventId ? 'Removing...' : 'Unfollow'}
-                  </button>
+                    📆 Subscribe in Google Calendar
+                  </a>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
+
+          {/* Custom Subscriptions Section */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              My Followed Events ({eventFollows.length})
+            </h3>
+
+            {customFeedUrl && (
+              <div className="mb-4 space-y-4">
+                <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                    Custom Calendar Feed URL:
+                  </h4>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={customFeedUrl}
+                      readOnly
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
+                    />
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(customFeedUrl);
+                        alert('Feed URL copied to clipboard!');
+                      }}
+                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <a
+                    href={buildGoogleCalendarSubscribeUrl(customFeedUrl)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center w-full mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm"
+                  >
+                    📆 Subscribe in Google Calendar
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {eventFollows.length === 0 ? (
+              <p className="text-gray-600 dark:text-gray-400 text-center py-8 text-sm">
+                You haven't followed any events yet. Browse the calendar and click "Add to My Media Calendar" on events you want to follow.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {eventFollows.map((eventFollow) => (
+                  <div
+                    key={eventFollow.id}
+                    className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+                  >
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-gray-900 dark:text-white text-sm">
+                        {eventFollow.event.title}
+                      </h4>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                        <span>
+                          {format(new Date(eventFollow.event.start), 'PP')}
+                        </span>
+                        {eventFollow.event.location && (
+                          <span className="ml-2">• {eventFollow.event.location}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleUnfollow(eventFollow.eventId)}
+                      disabled={unfollowingId === eventFollow.eventId}
+                      className="ml-4 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50"
+                    >
+                      {unfollowingId === eventFollow.eventId ? 'Removing...' : 'Unfollow'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="text-center">

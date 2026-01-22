@@ -19,6 +19,40 @@ interface CSVRow {
   timezone?: string;
   source?: string;
   status?: string;
+  all_day?: string; // "true" or "false" to explicitly control all-day status
+}
+
+/**
+ * Detect whether a date string appears to include a time component
+ */
+function hasTimeComponent(value?: string | null): boolean {
+  if (!value) return false;
+  // Check for time patterns: ISO with "T12:00" or human strings with "12:00"
+  return /T\d{1,2}:\d{2}/.test(value) || /\d{1,2}:\d{2}/.test(value);
+}
+
+/**
+ * Parse date string - handles both date-only (YYYY-MM-DD) and ISO formats
+ * For date-only strings, parse as UTC to avoid timezone shifts
+ */
+function parseDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  
+  const trimmed = dateStr.trim();
+  
+  // If it's a date-only string (YYYY-MM-DD), parse explicitly as UTC
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [year, month, day] = trimmed.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day));
+  }
+  
+  // Try parsing as Date (handles ISO and other formats)
+  const date = new Date(trimmed);
+  if (!isNaN(date.getTime())) {
+    return date;
+  }
+  
+  return null;
 }
 
 async function seedFromCSV(csvPath: string) {
@@ -44,18 +78,68 @@ async function seedFromCSV(csvPath: string) {
           row[header] = values[index] || null;
         });
 
-        // Parse dates
-        const startDate = new Date(row.start);
-        const endDate = new Date(row.end);
+        // Parse dates using the helper function
+        const startDate = parseDate(row.start);
+        const endDate = parseDate(row.end || row.start);
 
-        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        if (!startDate || !endDate) {
           console.error(`⚠️  Row ${i}: Invalid date format`);
           errorCount++;
           continue;
         }
 
+        // Check if dates have time components
+        const startHasTime = hasTimeComponent(row.start);
+        const endHasTime = hasTimeComponent(row.end || row.start);
+        
+        // Determine all-day status: explicit all_day column overrides auto-detection
+        let isAllDay: boolean;
+        if (row.all_day !== undefined && row.all_day !== null && row.all_day !== '') {
+          // Explicit all_day column provided - parse it
+          const allDayValue = row.all_day.trim().toLowerCase();
+          isAllDay = allDayValue === 'true' || allDayValue === '1' || allDayValue === 'yes';
+        } else {
+          // Auto-detect: no time component means all-day
+          isAllDay = !startHasTime && !endHasTime;
+        }
+
+        // For all-day events, use fixed UTC times to prevent timezone shifts
+        // Start: 12:00 UTC, End: 22:00 UTC on the same calendar days (inclusive)
+        let finalStartDate = startDate;
+        let finalEndDate = endDate;
+
+        if (isAllDay) {
+          // Extract UTC date components to preserve calendar day
+          const startYear = startDate.getUTCFullYear();
+          const startMonth = startDate.getUTCMonth();
+          const startDay = startDate.getUTCDate();
+          
+          const endYear = endDate.getUTCFullYear();
+          const endMonth = endDate.getUTCMonth();
+          const endDay = endDate.getUTCDate();
+
+          // Set to fixed UTC times: start at 12:00 UTC, end at 22:00 UTC
+          finalStartDate = new Date(Date.UTC(startYear, startMonth, startDay, 12, 0, 0, 0));
+          finalEndDate = new Date(Date.UTC(endYear, endMonth, endDay, 22, 0, 0, 0));
+
+          // Ensure end is not before start (for same-day events)
+          if (finalEndDate < finalStartDate) {
+            finalEndDate = new Date(Date.UTC(startYear, startMonth, startDay, 22, 0, 0, 0));
+          }
+        } else {
+          // For timed events, ensure end is not before start
+          if (finalEndDate < finalStartDate) {
+            finalEndDate = finalStartDate;
+          }
+        }
+
         // Determine status
         const status = row.status === 'PENDING' ? 'PENDING' : 'PUBLISHED';
+
+        // Determine timezone - null for all-day events, provided value or default for timed events
+        const timezone = isAllDay
+          ? null
+          : (row.timezone?.trim() || 'America/New_York');
 
         // Upsert event (by title and start date as unique key)
         await prisma.event.upsert({
@@ -67,9 +151,9 @@ async function seedFromCSV(csvPath: string) {
             description: row.description || null,
             url: row.url || null,
             location: row.location || null,
-            start: startDate,
-            end: endDate,
-            timezone: row.timezone || 'America/New_York',
+            start: finalStartDate,
+            end: finalEndDate,
+            timezone,
             source: row.source || null,
             status,
           },
@@ -78,16 +162,20 @@ async function seedFromCSV(csvPath: string) {
             description: row.description || null,
             url: row.url || null,
             location: row.location || null,
-            start: startDate,
-            end: endDate,
-            timezone: row.timezone || 'America/New_York',
+            start: finalStartDate,
+            end: finalEndDate,
+            timezone,
             source: row.source || null,
             status,
           },
         });
-
+        
         successCount++;
-        console.log(`✅ Row ${i}: ${row.title}`);
+        if (isAllDay) {
+          console.log(`✅ Row ${i}: ${row.title} (all-day)`);
+        } else {
+          console.log(`✅ Row ${i}: ${row.title} (timed, ${timezone})`);
+        }
       } catch (error: any) {
         console.error(`❌ Row ${i}: ${error.message}`);
         errorCount++;

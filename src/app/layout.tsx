@@ -7,6 +7,10 @@ import AuthNav from '@/components/AuthNav';
 export const metadata: Metadata = {
   title: 'The Media Calendar',
   description: 'The one-stop-shop for all adtech and media events',
+  icons: {
+    icon: '/icon.png',
+    apple: '/icon.png',
+  },
 };
 
 export default function RootLayout({

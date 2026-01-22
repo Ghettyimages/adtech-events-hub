@@ -7,12 +7,10 @@ export interface GoogleCalendarEvent {
   description?: string;
   location?: string;
   start: {
-    dateTime: string;
-    timeZone?: string;
+    date: string;  // All-day event format: YYYY-MM-DD
   };
   end: {
-    dateTime: string;
-    timeZone?: string;
+    date: string;  // All-day event format: YYYY-MM-DD (exclusive)
   };
   iCalUID?: string;
   source?: {
@@ -195,7 +193,19 @@ export async function deleteEventFromGoogleCalendar(
 }
 
 /**
+ * Format a Date as YYYY-MM-DD for Google Calendar all-day events
+ * Uses UTC date components to avoid timezone shifts
+ */
+function formatDateForGoogleCalendar(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Convert our Event model to Google Calendar event format
+ * All events are created as all-day events using the date field (not dateTime)
  */
 export function convertEventToGoogleCalendar(event: {
   id: string;
@@ -210,17 +220,20 @@ export function convertEventToGoogleCalendar(event: {
   const startDate = typeof event.start === 'string' ? new Date(event.start) : event.start;
   const endDate = typeof event.end === 'string' ? new Date(event.end) : event.end;
 
+  // Calculate exclusive end date (Google Calendar all-day events use exclusive end dates)
+  // Add 1 day to the end date
+  const exclusiveEndDate = new Date(endDate);
+  exclusiveEndDate.setUTCDate(exclusiveEndDate.getUTCDate() + 1);
+
   return {
     summary: event.title,
     description: event.description || undefined,
     location: event.location || undefined,
     start: {
-      dateTime: startDate.toISOString(),
-      timeZone: event.timezone || 'UTC',
+      date: formatDateForGoogleCalendar(startDate),
     },
     end: {
-      dateTime: endDate.toISOString(),
-      timeZone: event.timezone || 'UTC',
+      date: formatDateForGoogleCalendar(exclusiveEndDate),
     },
     iCalUID: generateEventICalUID(event.id),
     source: event.url

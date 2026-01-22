@@ -16,7 +16,7 @@ export default function AddToCalendarLink({ event }: AddToCalendarLinkProps) {
   const googleCalUrl = buildGoogleCalendarUrl(event);
 
   const downloadICS = () => {
-    const calendar: ICalCalendar = ical({ name: 'AdTech Event' });
+    const calendar: ICalCalendar = ical({ name: 'The Media Calendar' });
     
     // If timezone is null, it's an all-day event
     const isAllDay = !event.timezone;

@@ -37,8 +37,10 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // "connected" means: has Google account AND has calendar sync enabled
+    // This distinguishes between "logged in with Google" vs "Google Calendar integration active"
     const responseData = {
-      connected: !!googleAccount,
+      connected: !!googleAccount && (dbUser?.gcalSyncEnabled || false),
       account: googleAccount
         ? {
             id: googleAccount.id,

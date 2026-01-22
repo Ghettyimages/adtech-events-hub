@@ -17,7 +17,7 @@ export default function HomePage() {
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8 text-center">
         <h1 className="text-4xl font-bold mb-4 text-gray-900 dark:text-white">
-          AdTech & Media Events Calendar
+          The Media Calendar
         </h1>
         <p className="text-lg text-gray-600 dark:text-gray-400 mb-6">
           Discover upcoming conferences, webinars, and networking events in the AdTech ecosystem.

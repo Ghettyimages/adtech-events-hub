@@ -225,7 +225,7 @@ export function convertEventToGoogleCalendar(event: {
     iCalUID: generateEventICalUID(event.id),
     source: event.url
       ? {
-          title: 'AdTech Events Hub',
+          title: 'The Media Calendar',
           url: event.url,
         }
       : undefined,

@@ -22,7 +22,7 @@ export default function RootLayout({
             <div className="container mx-auto px-4 py-4">
               <nav className="flex items-center justify-between">
                 <Link href="/" className="text-2xl font-bold hover:opacity-90 transition">
-                  🎯 AdTech Events Hub
+                  🎯 The Media Calendar
                 </Link>
                 <div className="flex gap-4 items-center">
                   <Link
@@ -47,7 +47,7 @@ export default function RootLayout({
             <div className="container mx-auto px-4 py-6 text-center text-gray-600 dark:text-gray-400">
               <div className="flex flex-col gap-2 items-center">
                 <p>
-                  AdTech Events Hub &copy; {new Date().getFullYear()} | Built with Next.js, Prisma &amp; FullCalendar
+                  The Media Calendar &copy; {new Date().getFullYear()} | Built with Next.js, Prisma &amp; FullCalendar
                 </p>
                 <div className="flex gap-4 text-sm">
                   <Link href="/terms" className="hover:underline">

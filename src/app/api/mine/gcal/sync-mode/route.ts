@@ -1,79 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { z } from 'zod';
 import {
   upsertEventToGoogleCalendar,
   deleteEventFromGoogleCalendar,
   convertEventToGoogleCalendar,
   generateEventICalUID,
-  ensureDedicatedCalendar,
 } from '@/lib/gcal';
 
-export async function POST(request: NextRequest) {
+const syncModeSchema = z.object({
+  mode: z.enum(['FULL', 'CUSTOM']),
+});
+
+export async function PATCH(request: NextRequest) {
   try {
     const session = await auth();
-
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user's Google account
-    const googleAccount = await prisma.account.findFirst({
-      where: {
-        userId: session.user.id,
-        provider: 'google',
-      },
-    });
+    const body = await request.json();
+    const { mode } = syncModeSchema.parse(body);
 
-    if (!googleAccount || !googleAccount.access_token) {
-      return NextResponse.json(
-        { error: 'Google Calendar not connected. Please connect your Google account first.' },
-        { status: 400 }
-      );
-    }
-
-    // Get user's sync mode and followed events
+    // Get user's current state
     const dbUser = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
-        gcalCalendarId: true,
         gcalSyncMode: true,
+        gcalSyncEnabled: true,
+        gcalCalendarId: true,
         eventFollows: {
           include: { event: true },
         },
       },
     });
 
-    if (!dbUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const syncMode = dbUser.gcalSyncMode || 'FULL';
-
-    // Get user's calendar ID (ensure it exists)
-    let calendarId = dbUser.gcalCalendarId;
-
-    if (!calendarId) {
-      // Create dedicated calendar if it doesn't exist
-      calendarId = await ensureDedicatedCalendar(
-        googleAccount.access_token,
-        googleAccount.refresh_token || undefined
+    if (!dbUser?.gcalSyncEnabled || !dbUser?.gcalCalendarId) {
+      return NextResponse.json(
+        { error: 'Google Calendar not connected' },
+        { status: 400 }
       );
-      await prisma.user.update({
-        where: { id: session.user.id },
-        data: { gcalCalendarId: calendarId },
-      });
     }
 
-    // Determine which events to sync based on mode
-    let eventsToSync: any[];
-    if (syncMode === 'CUSTOM') {
-      // Sync only followed events
-      eventsToSync = dbUser.eventFollows
-        .map((follow) => follow.event)
-        .filter((event) => event.status === 'PUBLISHED');
-    } else {
-      // FULL mode: Ensure FULL subscription is active
+    const previousMode = dbUser.gcalSyncMode || 'FULL';
+
+    // Update sync mode
+    await prisma.user.update({
+      where: { id: session.user.id },
+      data: { gcalSyncMode: mode },
+    });
+
+    // If switching to FULL, ensure FULL subscription is active
+    if (mode === 'FULL') {
       let fullSubscription = await prisma.subscription.findFirst({
         where: {
           userId: session.user.id,
@@ -82,7 +61,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!fullSubscription) {
-        fullSubscription = await prisma.subscription.create({
+        await prisma.subscription.create({
           data: {
             userId: session.user.id,
             kind: 'FULL',
@@ -90,20 +69,46 @@ export async function POST(request: NextRequest) {
           },
         });
       } else if (!fullSubscription.active) {
-        fullSubscription = await prisma.subscription.update({
+        await prisma.subscription.update({
           where: { id: fullSubscription.id },
           data: { active: true },
         });
       }
+    }
 
-      // Get all published events
+    // Get Google account for sync
+    const googleAccount = await prisma.account.findFirst({
+      where: {
+        userId: session.user.id,
+        provider: 'google',
+      },
+      select: { access_token: true, refresh_token: true },
+    });
+
+    if (!googleAccount?.access_token) {
+      return NextResponse.json({
+        success: true,
+        message: `Sync mode updated to ${mode}. Please reconnect Google Calendar to sync.`,
+        warning: 'No access token available',
+      });
+    }
+
+    // Auto-trigger sync when mode changes
+    const accessToken = googleAccount.access_token;
+    const refreshToken = googleAccount.refresh_token || undefined;
+    const calendarId = dbUser.gcalCalendarId;
+
+    // Determine which events to sync based on new mode
+    let eventsToSync: any[];
+    if (mode === 'CUSTOM') {
+      eventsToSync = dbUser.eventFollows
+        .map((follow) => follow.event)
+        .filter((event) => event.status === 'PUBLISHED');
+    } else {
       eventsToSync = await prisma.event.findMany({
         where: { status: 'PUBLISHED' },
       });
     }
-
-    const accessToken = googleAccount.access_token;
-    const refreshToken = googleAccount.refresh_token || undefined;
 
     const results = {
       synced: 0,
@@ -111,7 +116,6 @@ export async function POST(request: NextRequest) {
       errors: [] as string[],
     };
 
-    // Track event IDs we're syncing
     const syncedEventIds = new Set<string>();
 
     // Sync events
@@ -125,7 +129,6 @@ export async function POST(request: NextRequest) {
           gcalEvent
         );
 
-        // Track the sync in UserEventSync table
         await prisma.userEventSync.upsert({
           where: {
             userId_eventId: {
@@ -151,7 +154,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Cleanup orphaned events (events synced previously but no longer in current set)
+    // Cleanup orphaned events
     const currentSyncs = await prisma.userEventSync.findMany({
       where: {
         userId: session.user.id,
@@ -159,7 +162,6 @@ export async function POST(request: NextRequest) {
     });
 
     for (const sync of currentSyncs) {
-      // If this event wasn't in our current sync set, it's orphaned
       if (!syncedEventIds.has(sync.eventId)) {
         try {
           const iCalUID = generateEventICalUID(sync.eventId);
@@ -174,7 +176,6 @@ export async function POST(request: NextRequest) {
           console.error(`Failed to delete orphaned event ${sync.eventId}:`, error);
         }
 
-        // Remove tracking record
         await prisma.userEventSync.delete({
           where: { id: sync.id },
         });
@@ -194,19 +195,55 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Successfully synced ${results.synced} event(s) to Google Calendar${
-        results.removed > 0 ? ` and removed ${results.removed} orphaned event(s)` : ''
+      message: `Sync mode updated to ${mode}. Synced ${results.synced} event(s)${
+        results.removed > 0 ? `, removed ${results.removed} event(s)` : ''
       }`,
+      previousMode,
+      newMode: mode,
       synced: results.synced,
       removed: results.removed,
-      mode: syncMode,
-      errors: results.errors,
+      errors: results.errors.length > 0 ? results.errors : undefined,
     });
   } catch (error: any) {
-    console.error('Error syncing to Google Calendar:', error);
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Invalid input', details: error.errors },
+        { status: 400 }
+      );
+    }
+    console.error('Error updating sync mode:', error);
     return NextResponse.json(
-      { error: 'Failed to sync to Google Calendar', details: error.message },
+      { error: 'Failed to update sync mode', details: error.message },
       { status: 500 }
     );
   }
 }
+
+export async function GET(request: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const dbUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: {
+        gcalSyncMode: true,
+        gcalSyncEnabled: true,
+      },
+    });
+
+    return NextResponse.json({
+      mode: dbUser?.gcalSyncMode || 'FULL',
+      enabled: dbUser?.gcalSyncEnabled || false,
+    });
+  } catch (error: any) {
+    console.error('Error getting sync mode:', error);
+    return NextResponse.json(
+      { error: 'Failed to get sync mode' },
+      { status: 500 }
+    );
+  }
+}
+

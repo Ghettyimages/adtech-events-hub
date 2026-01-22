@@ -192,12 +192,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             );
 
             // Update user with calendar ID and enable sync
+            // Default to FULL sync mode on initial connection
             await prisma.user.update({
               where: { id: user.id },
               data: {
                 gcalCalendarId: calendarId,
                 gcalSyncEnabled: true,
                 gcalSyncPending: true,
+                gcalSyncMode: 'FULL',
               },
             });
           } else {

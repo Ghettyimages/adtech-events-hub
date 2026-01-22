@@ -5,7 +5,7 @@ import SessionProvider from '@/components/SessionProvider';
 import AuthNav from '@/components/AuthNav';
 
 export const metadata: Metadata = {
-  title: 'AdTech Events Hub',
+  title: 'The Media Calendar',
   description: 'The one-stop-shop for all adtech and media events',
 };
 

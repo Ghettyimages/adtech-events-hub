@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { ensureDedicatedCalendar } from '@/lib/gcal';
+import { ensureDedicatedCalendar, getCalendarClient } from '@/lib/gcal';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,36 +29,60 @@ export async function POST(request: NextRequest) {
     // Get current user state
     const dbUser = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { gcalCalendarId: true, gcalSyncEnabled: true },
+      select: { gcalCalendarId: true, gcalSyncEnabled: true, gcalSyncMode: true },
     });
 
     if (!dbUser) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Ensure calendar exists (idempotent)
+    // If calendar ID exists in DB, verify it still exists in Google Calendar
+    // If not, we'll need to find or create a new one
     let calendarId = dbUser.gcalCalendarId;
+    
+    if (calendarId) {
+      // Verify the calendar still exists
+      try {
+        const calendar = getCalendarClient(
+          googleAccount.access_token,
+          googleAccount.refresh_token || undefined
+        );
+        await calendar.calendars.get({ calendarId });
+        // Calendar exists, use it
+        console.log('Verified existing calendar ID:', calendarId);
+      } catch (verifyError: any) {
+        // Calendar doesn't exist or is inaccessible, clear it and create new
+        console.warn('Stored calendar ID is invalid, will create new calendar:', verifyError.message);
+        calendarId = null;
+      }
+    }
+
+    // Only ensure calendar if we don't have a valid one
     if (!calendarId) {
       calendarId = await ensureDedicatedCalendar(
         googleAccount.access_token,
         googleAccount.refresh_token || undefined
       );
 
+      // Set default sync mode to FULL on initial calendar creation
       await prisma.user.update({
         where: { id: session.user.id },
         data: {
           gcalCalendarId: calendarId,
           gcalSyncEnabled: true,
           gcalSyncPending: true,
+          gcalSyncMode: 'FULL',
         },
       });
     } else if (!dbUser.gcalSyncEnabled) {
       // Calendar exists but sync not enabled - enable it
+      // Also ensure sync mode is set (default to FULL if not set)
       await prisma.user.update({
         where: { id: session.user.id },
         data: {
           gcalSyncEnabled: true,
           gcalSyncPending: true,
+          gcalSyncMode: dbUser.gcalSyncMode || 'FULL',
         },
       });
     }

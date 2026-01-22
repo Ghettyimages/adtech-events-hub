@@ -235,6 +235,7 @@ export function convertEventToGoogleCalendar(event: {
 /**
  * Ensure a dedicated calendar exists for a user
  * Creates the calendar if it doesn't exist, returns the calendar ID
+ * Checks for existing calendars first to prevent duplicates
  */
 export async function ensureDedicatedCalendar(
   accessToken: string,
@@ -243,7 +244,20 @@ export async function ensureDedicatedCalendar(
   const calendar = getCalendarClient(accessToken, refreshToken);
 
   try {
-    // Try to create the calendar
+    // FIRST: Check if calendar already exists by listing calendars
+    // This prevents creating duplicate calendars
+    const calendars = await calendar.calendarList.list();
+    const existingCalendar = calendars.data.items?.find(
+      (cal) => cal.summary === 'The Media Calendar'
+    );
+    
+    if (existingCalendar?.id) {
+      console.log('Found existing "The Media Calendar", reusing:', existingCalendar.id);
+      return existingCalendar.id;
+    }
+
+    // Only create if no existing calendar found
+    console.log('No existing "The Media Calendar" found, creating new one...');
     const created = await calendar.calendars.insert({
       requestBody: {
         summary: 'The Media Calendar',
@@ -252,25 +266,27 @@ export async function ensureDedicatedCalendar(
       },
     });
 
+    console.log('Created new "The Media Calendar":', created.data.id);
     return created.data.id!;
   } catch (error: any) {
-    // If calendar already exists (409), try to find it by name
-    // With calendar.app.created scope, we can list calendars we created
+    // If creation fails with 409 (already exists), try to find it again
+    // This handles race conditions where calendar was created between our check and creation
     if (error.code === 409 || error.message?.includes('already exists')) {
+      console.warn('Calendar creation conflict (409), searching for existing calendar...');
       try {
-        // List calendars and find ours
         const calendars = await calendar.calendarList.list();
         const mediaCalendar = calendars.data.items?.find(
           (cal) => cal.summary === 'The Media Calendar'
         );
         if (mediaCalendar?.id) {
+          console.log('Found calendar after conflict:', mediaCalendar.id);
           return mediaCalendar.id;
         }
       } catch (listError: any) {
-        // If listing fails, throw original error
-        console.warn('Failed to list calendars after creation conflict:', listError);
+        console.error('Failed to list calendars after creation conflict:', listError);
       }
     }
+    console.error('Error ensuring dedicated calendar:', error);
     throw error;
   }
 }

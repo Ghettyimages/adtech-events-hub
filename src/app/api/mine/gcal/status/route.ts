@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
         gcalCalendarId: true,
         gcalSyncEnabled: true,
         gcalSyncPending: true,
+        gcalSyncMode: true,
         gcalLastSyncedAt: true,
         gcalLastSyncError: true,
         gcalLastSyncAttemptAt: true,
@@ -48,6 +49,7 @@ export async function GET(request: NextRequest) {
       sync: {
         enabled: dbUser?.gcalSyncEnabled || false,
         pending: dbUser?.gcalSyncPending || false,
+        mode: dbUser?.gcalSyncMode || 'FULL',
         calendarId: dbUser?.gcalCalendarId || null,
         lastSyncedAt: dbUser?.gcalLastSyncedAt?.toISOString() || null,
         lastSyncError: dbUser?.gcalLastSyncError || null,

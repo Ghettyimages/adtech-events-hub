@@ -41,17 +41,35 @@ export function toGoogleCalendarDate(date: Date): string {
 }
 
 /**
- * Builds a Google Calendar event URL for all-day events
+ * Builds a Google Calendar event URL
+ * For all-day events, uses date-only format with exclusive end date
+ * For timed events, uses full datetime format
  */
 export function buildGoogleCalendarUrl(event: Event): string {
   const params = new URLSearchParams();
   params.set('action', 'TEMPLATE');
   params.set('text', event.title);
   
-  // Format as all-day events (date only, no time)
-  const startDate = toGoogleCalendarDate(new Date(event.start));
-  const endDate = toGoogleCalendarDate(new Date(event.end));
-  params.set('dates', `${startDate}/${endDate}`);
+  // Check if this is an all-day event (no timezone = all-day)
+  const isAllDay = !event.timezone;
+  
+  if (isAllDay) {
+    // Format as all-day events (date only, no time)
+    // Google Calendar uses exclusive end dates, so add 1 day
+    const startDate = toGoogleCalendarDate(new Date(event.start));
+    const endDateObj = new Date(event.end);
+    const endYear = endDateObj.getUTCFullYear();
+    const endMonth = endDateObj.getUTCMonth();
+    const endDay = endDateObj.getUTCDate();
+    const exclusiveEnd = new Date(Date.UTC(endYear, endMonth, endDay + 1));
+    const endDate = toGoogleCalendarDate(exclusiveEnd);
+    params.set('dates', `${startDate}/${endDate}`);
+  } else {
+    // For timed events, use full ISO format (YYYYMMDDTHHmmssZ)
+    const start = new Date(event.start).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const end = new Date(event.end).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    params.set('dates', `${start}/${end}`);
+  }
   
   if (event.location) {
     params.set('location', event.location);

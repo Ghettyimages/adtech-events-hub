@@ -149,9 +149,19 @@ export async function GET(request: NextRequest) {
     finalEvents.forEach((event) => {
       // If timezone is null, it's an all-day event
       const isAllDay = !event.timezone;
+      
+      // For all-day events, iCal uses exclusive end dates (day after last day)
+      let endDate = new Date(event.end);
+      if (isAllDay) {
+        const endYear = endDate.getUTCFullYear();
+        const endMonth = endDate.getUTCMonth();
+        const endDay = endDate.getUTCDate();
+        endDate = new Date(Date.UTC(endYear, endMonth, endDay + 1, 12, 0, 0, 0));
+      }
+      
       calendar.createEvent({
         start: new Date(event.start),
-        end: new Date(event.end),
+        end: endDate,
         summary: event.title,
         description: event.description || undefined,
         location: event.location || undefined,

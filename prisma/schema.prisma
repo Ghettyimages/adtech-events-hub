@@ -34,6 +34,7 @@ model Event {
   updatedAt   DateTime @updatedAt
   // relations
   follows     EventFollow[]
+  userEventSyncs UserEventSync[]
   submitter   User?    @relation("SubmittedEvents", fields: [submittedBy], references: [id])
 }
 
@@ -74,6 +75,7 @@ model User {
   gcalCalendarId      String?  // Dedicated calendar ID created in Google
   gcalSyncEnabled     Boolean  @default(false) // User opted in / connected
   gcalSyncPending     Boolean  @default(false) // Queued for background sync
+  gcalSyncMode        String   @default("FULL") // "FULL" | "CUSTOM"
   gcalLastSyncedAt    DateTime? // Incremental sync cursor
   gcalLastSyncError   String? // Last sync error message
   gcalLastSyncAttemptAt DateTime? // Last sync attempt timestamp
@@ -85,6 +87,7 @@ model User {
   // Subscription relations
   subscriptions Subscription[]
   eventFollows  EventFollow[]
+  userEventSyncs UserEventSync[]
   // Events submitted by this user
   submittedEvents Event[] @relation("SubmittedEvents")
 }
@@ -159,4 +162,17 @@ model Tag {
   updatedAt   DateTime @updatedAt
   
   @@index([name])
+}
+
+model UserEventSync {
+  id          String   @id @default(cuid())
+  userId      String
+  eventId     String
+  gcalEventId String?  // Google Calendar event ID (optional, for faster lookups)
+  syncedAt    DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  @@unique([userId, eventId])
+  @@index([userId])
+  @@index([eventId])
 }

@@ -42,6 +42,7 @@ export default function SubscriptionsPage() {
   const [gcalSyncStatus, setGcalSyncStatus] = useState<{
     enabled: boolean;
     pending: boolean;
+    mode: string;
     calendarId: string | null;
     lastSyncedAt: string | null;
     lastSyncError: string | null;
@@ -50,6 +51,7 @@ export default function SubscriptionsPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [isChangingMode, setIsChangingMode] = useState(false);
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
@@ -226,6 +228,42 @@ export default function SubscriptionsPage() {
       });
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleChangeSyncMode = async (newMode: 'FULL' | 'CUSTOM') => {
+    if (gcalSyncStatus?.mode === newMode) return;
+    
+    setIsChangingMode(true);
+    setSyncResult(null);
+    try {
+      const response = await fetch('/api/mine/gcal/sync-mode', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: newMode }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSyncResult({
+          success: true,
+          message: data.message || `Sync mode changed to ${newMode}`,
+        });
+        // Refresh connection status
+        await checkGoogleCalendarStatus();
+      } else {
+        setSyncResult({
+          success: false,
+          message: data.error || 'Failed to change sync mode',
+        });
+      }
+    } catch (error: any) {
+      setSyncResult({
+        success: false,
+        message: error.message || 'An error occurred while changing sync mode',
+      });
+    } finally {
+      setIsChangingMode(false);
     }
   };
 
@@ -410,11 +448,80 @@ export default function SubscriptionsPage() {
                 </button>
               </div>
 
+              {/* Sync Mode Selection */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <span>⚙️</span>
+                  <span>Sync Mode</span>
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Choose which events to sync to your Google Calendar:
+                </p>
+                <div className="space-y-3">
+                  <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition ${
+                    gcalSyncStatus?.mode === 'FULL' 
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                      : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                  } ${isChangingMode ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <input
+                      type="radio"
+                      name="syncMode"
+                      value="FULL"
+                      checked={gcalSyncStatus?.mode === 'FULL'}
+                      onChange={() => handleChangeSyncMode('FULL')}
+                      disabled={isChangingMode}
+                      className="mt-1"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900 dark:text-white">Full Calendar</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        Sync all published events to your calendar
+                      </div>
+                    </div>
+                  </label>
+                  <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition ${
+                    gcalSyncStatus?.mode === 'CUSTOM' 
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                      : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                  } ${isChangingMode ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <input
+                      type="radio"
+                      name="syncMode"
+                      value="CUSTOM"
+                      checked={gcalSyncStatus?.mode === 'CUSTOM'}
+                      onChange={() => handleChangeSyncMode('CUSTOM')}
+                      disabled={isChangingMode}
+                      className="mt-1"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900 dark:text-white">
+                        Only My Followed Events {eventFollows.length > 0 && `(${eventFollows.length})`}
+                      </div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        Only sync events you've explicitly followed. New follows are auto-synced!
+                      </div>
+                    </div>
+                  </label>
+                </div>
+                {isChangingMode && (
+                  <div className="mt-3 flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <span className="text-sm">Changing sync mode and syncing events...</span>
+                  </div>
+                )}
+              </div>
+
               {/* Info box when Google Calendar is connected */}
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                 <p className="text-sm text-blue-800 dark:text-blue-200">
                   <strong>💡 Tip:</strong> You're using automatic sync! Your events are already being synced to 
-                  "The Media Calendar" in your Google Calendar. You don't need to manually subscribe to feeds.
+                  "The Media Calendar" in your Google Calendar. 
+                  {gcalSyncStatus?.mode === 'CUSTOM' 
+                    ? ' When you follow a new event, it will automatically appear in your calendar!'
+                    : ' You don\'t need to manually subscribe to feeds.'}
                 </p>
               </div>
 
@@ -425,6 +532,11 @@ export default function SubscriptionsPage() {
                       <span className="font-medium">Auto-sync:</span>
                       <span className={gcalSyncStatus.pending ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400'}>
                         {gcalSyncStatus.pending ? 'Pending' : 'Active'}
+                      </span>
+                      <span className="text-gray-400 dark:text-gray-500">•</span>
+                      <span className="font-medium">Mode:</span>
+                      <span className="text-blue-600 dark:text-blue-400">
+                        {gcalSyncStatus.mode === 'CUSTOM' ? 'Followed Events Only' : 'Full Calendar'}
                       </span>
                     </div>
                     {gcalSyncStatus.lastSyncedAt && (

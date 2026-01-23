@@ -36,8 +36,8 @@ export default function RootLayout({
                   <Image
                     src="/logo.png"
                     alt="TMC Logo"
-                    width={40}
-                    height={40}
+                    width={80}
+                    height={80}
                     className="rounded"
                   />
                   The Media Calendar

@@ -24,6 +24,7 @@ export default function EventCard({ event, onClose }: EventCardProps) {
   const [showFollowModal, setShowFollowModal] = useState(false);
   const [showFullModal, setShowFullModal] = useState(false);
   const [feedToken, setFeedToken] = useState<string | null>(null);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
   useEffect(() => {
     if (status === 'authenticated' && session) {
@@ -207,9 +208,19 @@ export default function EventCard({ event, onClose }: EventCardProps) {
                 <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1">
                   Description
                 </h3>
-                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                  {event.description}
-                </p>
+                <div className="text-gray-700 dark:text-gray-300">
+                  <p className={isDescriptionExpanded ? 'whitespace-pre-wrap' : 'line-clamp-1'}>
+                    {event.description}
+                  </p>
+                  {(event.description.includes('\n') || event.description.length > 100) && (
+                    <button
+                      onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm mt-1"
+                    >
+                      {isDescriptionExpanded ? 'Show less' : '... more'}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 

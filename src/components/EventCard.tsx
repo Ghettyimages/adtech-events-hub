@@ -120,7 +120,7 @@ export default function EventCard({ event, onClose }: EventCardProps) {
       }}
     >
       <div 
-        className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-2xl w-full min-h-[500px] max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-6">

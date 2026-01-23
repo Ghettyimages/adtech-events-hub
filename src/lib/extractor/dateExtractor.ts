@@ -41,6 +41,13 @@ const DATE_PATTERN = new RegExp(
   'gi'
 );
 
+// Cross-month date range pattern: "Month Day - Month Day, Year" or "Month Day, Year - Month Day, Year"
+// Captures: startMonth, startDay, startYear?, endMonth, endDay, endYear?
+const CROSS_MONTH_DATE_PATTERN = new RegExp(
+  `\\b(${MONTH_NAMES.map((m) => `${m.slice(0, 3)}(?:${m.slice(3)})?`).join('|')})\\s+(\\d{1,2})(?:,?\\s*(\\d{4}))?\\s*(?:-|–|to)\\s*(${MONTH_NAMES.map((m) => `${m.slice(0, 3)}(?:${m.slice(3)})?`).join('|')})\\s+(\\d{1,2})(?:,?\\s*(\\d{4}))?`,
+  'gi'
+);
+
 const DEBUG = process.env.DEBUG_EXTRACTOR === '1';
 
 const logDebug = (...args: any[]) => {
@@ -109,6 +116,73 @@ const parseDateMatch = (
   const startDate = new Date(startIso);
   const endDate = new Date(endIso);
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null;
+  }
+
+  const evidence = match[0].replace(/\s+/g, ' ').trim();
+
+  return {
+    startIso,
+    endIso,
+    evidence,
+  };
+};
+
+/**
+ * Parse cross-month date ranges like "October 29 - November 2, 2025"
+ */
+const parseCrossMonthDateMatch = (
+  match: RegExpExecArray,
+  fallbackYear?: number
+): { startIso: string; endIso: string; evidence: string } | null => {
+  const startMonthName = match[1];
+  const startDay = parseInt(match[2], 10);
+  const startYearPart = match[3] ? parseInt(match[3], 10) : undefined;
+  const endMonthName = match[4];
+  const endDay = parseInt(match[5], 10);
+  const endYearPart = match[6] ? parseInt(match[6], 10) : undefined;
+
+  // Determine years - use explicit years if provided, otherwise fallback
+  const startYear = startYearPart ?? endYearPart ?? fallbackYear;
+  let endYear = endYearPart ?? startYearPart ?? fallbackYear;
+
+  if (!startMonthName || !endMonthName || !startYear || Number.isNaN(startDay) || Number.isNaN(endDay)) {
+    return null;
+  }
+
+  // Get month indices
+  const startMonthMatch = startMonthName.toLowerCase().match(MONTH_PATTERN);
+  const endMonthMatch = endMonthName.toLowerCase().match(MONTH_PATTERN);
+  if (!startMonthMatch || !endMonthMatch) return null;
+
+  const startMonthIndex = MONTH_NAMES.findIndex((m) => m.startsWith(startMonthMatch[0].toLowerCase()));
+  const endMonthIndex = MONTH_NAMES.findIndex((m) => m.startsWith(endMonthMatch[0].toLowerCase()));
+
+  if (startMonthIndex === -1 || endMonthIndex === -1) {
+    return null;
+  }
+
+  // Handle year rollover (e.g., December 28 - January 3)
+  if (endMonthIndex < startMonthIndex && !endYearPart) {
+    endYear = (startYear ?? fallbackYear ?? new Date().getFullYear()) + 1;
+  }
+
+  if (!endYear) {
+    return null;
+  }
+
+  const startIso = `${startYear}-${String(startMonthIndex + 1).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
+  const endIso = `${endYear}-${String(endMonthIndex + 1).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
+
+  // Validate dates
+  const startDate = new Date(startIso);
+  const endDate = new Date(endIso);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null;
+  }
+
+  // Ensure end is after start
+  if (endDate < startDate) {
     return null;
   }
 
@@ -230,7 +304,31 @@ const fromVisibleText = (html: string): StrictDateResult | null => {
   const yearMatch = bodyText.match(/\b(20\d{2})\b/);
   const fallbackYear = yearMatch ? parseInt(yearMatch[1], 10) : currentYear;
 
-  // Look for date patterns
+  // Try cross-month date patterns FIRST (e.g., "October 29 - November 2, 2025")
+  CROSS_MONTH_DATE_PATTERN.lastIndex = 0;
+  const crossMonthMatches: Array<{ match: RegExpExecArray; index: number }> = [];
+  let crossExec: RegExpExecArray | null;
+
+  while ((crossExec = CROSS_MONTH_DATE_PATTERN.exec(bodyText)) !== null) {
+    crossMonthMatches.push({ match: crossExec, index: crossExec.index });
+  }
+
+  // Try to parse cross-month date matches first
+  for (const { match } of crossMonthMatches) {
+    const parsed = parseCrossMonthDateMatch(match, fallbackYear);
+    if (parsed) {
+      logDebug('Cross-month visible text date found', { start: parsed.startIso, end: parsed.endIso });
+      return {
+        start: parsed.startIso,
+        end: parsed.endIso,
+        date_status: 'confirmed',
+        evidence: parsed.evidence,
+        evidence_context: 'visible-text',
+      };
+    }
+  }
+
+  // Fallback to single-month date patterns
   DATE_PATTERN.lastIndex = 0;
   const matches: Array<{ match: RegExpExecArray; index: number }> = [];
   let exec: RegExpExecArray | null;

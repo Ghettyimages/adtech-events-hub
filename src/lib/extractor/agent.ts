@@ -54,6 +54,13 @@ Output: Return a JSON array where each item is exactly this shape and order:
 
 "source": "MediaPost" } ]
 
+CRITICAL - Multi-Day Events: Many industry events span multiple days, sometimes across different months. Always capture the FULL date range:
+- Single day: { "start": "Oct 29, 2025", "end": "Oct 29, 2025" }
+- Multi-day same month: { "start": "Oct 29, 2025", "end": "Oct 31, 2025" }
+- Multi-day across months: { "start": "Oct 29, 2025", "end": "Nov 2, 2025" }
+- Year-spanning: { "start": "Dec 28, 2025", "end": "Jan 3, 2026" }
+Look for date ranges like "October 29-31", "Oct 29 - Nov 2", "October 29 to November 2", etc.
+
 Output Rules: Use null for any field you cannot confirm after expansion and careful reading. Do not include extra fields, notes, or commentary. Do not return partial pages; finish all “Load more”/pagination first. Do not fabricate or infer beyond what the page supports. 
 
 Error Handling: If the page lists events but none meet the confirmation checks, return an empty array []. If the site blocks expansion or detail pages cannot be opened, extract only what can be verified and set unverifiable fields to null.`;
@@ -159,6 +166,13 @@ const MONTH_PATTERN = new RegExp(
 
 const DATE_PATTERN = new RegExp(
   `\\b(${MONTH_NAMES.map((m) => `${m.slice(0, 3)}(?:${m.slice(3)})?`).join('|')})\\s+(\\d{1,2})(?:\\s*(?:-|–|to)\\s*(\\d{1,2}))?(?:\\s*\\([^)]+\\))?(?:,\\s*(\\d{4}))?`,
+  'gi'
+);
+
+// Cross-month date range pattern: "Month Day - Month Day, Year" or "Month Day, Year - Month Day, Year"
+// Captures: startMonth, startDay, startYear?, endMonth, endDay, endYear?
+const CROSS_MONTH_DATE_PATTERN = new RegExp(
+  `\\b(${MONTH_NAMES.map((m) => `${m.slice(0, 3)}(?:${m.slice(3)})?`).join('|')})\\s+(\\d{1,2})(?:,?\\s*(\\d{4}))?\\s*(?:-|–|to)\\s*(${MONTH_NAMES.map((m) => `${m.slice(0, 3)}(?:${m.slice(3)})?`).join('|')})\\s+(\\d{1,2})(?:,?\\s*(\\d{4}))?`,
   'gi'
 );
 
@@ -370,6 +384,18 @@ const parseDateFromLine = (
   fallbackYear?: number
 ): { result: ReturnType<typeof parseDateMatch>; match: RegExpExecArray } | null => {
   if (!line) return null;
+
+  // Try cross-month date patterns FIRST (e.g., "October 29 - November 2, 2025")
+  CROSS_MONTH_DATE_PATTERN.lastIndex = 0;
+  let crossExec: RegExpExecArray | null;
+  while ((crossExec = CROSS_MONTH_DATE_PATTERN.exec(line)) !== null) {
+    const parsed = parseCrossMonthDateMatch(crossExec, fallbackYear);
+    if (parsed) {
+      return { result: parsed, match: crossExec };
+    }
+  }
+
+  // Fallback to single-month date patterns
   DATE_PATTERN.lastIndex = 0;
   let exec: RegExpExecArray | null;
   while ((exec = DATE_PATTERN.exec(line)) !== null) {
@@ -786,14 +812,107 @@ const parseDateMatch = (
   };
 };
 
+/**
+ * Parse cross-month date ranges like "October 29 - November 2, 2025"
+ */
+const parseCrossMonthDateMatch = (
+  match: RegExpExecArray,
+  fallbackYear?: number
+): { startIso: string; endIso: string; evidence: string } | null => {
+  const startMonthName = match[1];
+  const startDay = parseInt(match[2], 10);
+  const startYearPart = match[3] ? parseInt(match[3], 10) : undefined;
+  const endMonthName = match[4];
+  const endDay = parseInt(match[5], 10);
+  const endYearPart = match[6] ? parseInt(match[6], 10) : undefined;
+
+  // Determine years - use explicit years if provided, otherwise fallback
+  const startYear = startYearPart ?? endYearPart ?? fallbackYear;
+  let endYear = endYearPart ?? startYearPart ?? fallbackYear;
+
+  if (!startMonthName || !endMonthName || !startYear || Number.isNaN(startDay) || Number.isNaN(endDay)) {
+    return null;
+  }
+
+  // Get month indices
+  const startMonthMatch = startMonthName.toLowerCase().match(MONTH_PATTERN);
+  const endMonthMatch = endMonthName.toLowerCase().match(MONTH_PATTERN);
+  if (!startMonthMatch || !endMonthMatch) return null;
+
+  const startMonthIndex = MONTH_NAMES.findIndex((m) => m.startsWith(startMonthMatch[0].toLowerCase()));
+  const endMonthIndex = MONTH_NAMES.findIndex((m) => m.startsWith(endMonthMatch[0].toLowerCase()));
+
+  if (startMonthIndex === -1 || endMonthIndex === -1) {
+    return null;
+  }
+
+  // Handle year rollover (e.g., December 28 - January 3)
+  if (endMonthIndex < startMonthIndex && !endYearPart) {
+    endYear = (startYear ?? fallbackYear ?? new Date().getFullYear()) + 1;
+  }
+
+  if (!endYear) {
+    return null;
+  }
+
+  const startIso = `${startYear}-${String(startMonthIndex + 1).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
+  const endIso = `${endYear}-${String(endMonthIndex + 1).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
+
+  // Validate dates
+  const startDate = new Date(startIso);
+  const endDate = new Date(endIso);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null;
+  }
+
+  // Ensure end is after start
+  if (endDate < startDate) {
+    return null;
+  }
+
+  const evidence = collapseWhitespace(match[0]);
+
+  return {
+    startIso,
+    endIso,
+    evidence,
+  };
+};
+
 const findBestDate = (
   plainSnippet: string,
   titleIndex: number,
   fallbackIso?: string
 ): { startIso: string; endIso: string; evidence: string } | null => {
+  const fallbackYear = fallbackIso ? new Date(fallbackIso).getUTCFullYear() : undefined;
+
+  // Try cross-month date patterns FIRST (e.g., "October 29 - November 2, 2025")
+  const crossMonthMatches: Array<{ match: RegExpExecArray; distance: number }> = [];
+  let crossExec: RegExpExecArray | null;
+
+  CROSS_MONTH_DATE_PATTERN.lastIndex = 0;
+  while ((crossExec = CROSS_MONTH_DATE_PATTERN.exec(plainSnippet)) !== null) {
+    const distance = titleIndex >= 0 ? Math.abs(crossExec.index - titleIndex) : crossExec.index;
+    if (titleIndex >= 0 && distance > MAX_DATE_DISTANCE_FROM_TITLE) {
+      continue;
+    }
+    crossMonthMatches.push({ match: crossExec, distance });
+  }
+
+  if (crossMonthMatches.length > 0) {
+    crossMonthMatches.sort((a, b) => a.distance - b.distance);
+
+    for (const candidate of crossMonthMatches) {
+      const parsed = parseCrossMonthDateMatch(candidate.match, fallbackYear);
+      if (parsed) {
+        return parsed;
+      }
+    }
+  }
+
+  // Fallback to single-month date patterns
   const matches: Array<{ match: RegExpExecArray; distance: number }> = [];
   let exec: RegExpExecArray | null;
-  const fallbackYear = fallbackIso ? new Date(fallbackIso).getUTCFullYear() : undefined;
 
   DATE_PATTERN.lastIndex = 0;
   while ((exec = DATE_PATTERN.exec(plainSnippet)) !== null) {
@@ -1203,11 +1322,45 @@ const verifyWithContext = (
 
   // Override dates with dateInfo if available (from strict extractor or findBestDate)
   if (dateInfo) {
-    next.start = dateInfo.startIso;
-    next.end = dateInfo.endIso;
-    next.evidence = dateInfo.evidence;
-    next.evidence_context = 'visible-text';
-    next.date_status = 'confirmed';
+    // Check if LLM detected a multi-day event but regex collapsed it to single-day
+    const llmStartDate = event.start ? new Date(event.start) : null;
+    const llmEndDate = event.end ? new Date(event.end) : null;
+    const regexStartDate = new Date(dateInfo.startIso);
+    const regexEndDate = new Date(dateInfo.endIso);
+    
+    const llmIsMultiDay = llmStartDate && llmEndDate && 
+      llmEndDate.getTime() > llmStartDate.getTime() + (24 * 60 * 60 * 1000);
+    const regexIsSingleDay = dateInfo.startIso === dateInfo.endIso || 
+      (regexEndDate.getTime() - regexStartDate.getTime()) < (24 * 60 * 60 * 1000);
+    
+    // Also check if the LLM start date matches (or is very close to) the regex start date
+    const startDatesMatch = llmStartDate && 
+      Math.abs(llmStartDate.getTime() - regexStartDate.getTime()) < (2 * 24 * 60 * 60 * 1000); // within 2 days
+    
+    if (llmIsMultiDay && regexIsSingleDay && startDatesMatch) {
+      // Preserve LLM's end date, but use regex start date (regex is usually more accurate for start)
+      if (process.env.DEBUG_EXTRACTOR === '1') {
+        // eslint-disable-next-line no-console
+        console.debug('[extractor] Preserving LLM multi-day end date', {
+          llmStart: event.start,
+          llmEnd: event.end,
+          regexStart: dateInfo.startIso,
+          regexEnd: dateInfo.endIso,
+        });
+      }
+      next.start = dateInfo.startIso;
+      next.end = event.end; // Keep LLM's multi-day end date
+      next.evidence = `${dateInfo.evidence} (multi-day event)`;
+      next.evidence_context = 'visible-text';
+      next.date_status = 'confirmed';
+    } else {
+      // Normal case: use regex dates
+      next.start = dateInfo.startIso;
+      next.end = dateInfo.endIso;
+      next.evidence = dateInfo.evidence;
+      next.evidence_context = 'visible-text';
+      next.date_status = 'confirmed';
+    }
   } else if (!useRefinedSnippet) {
     // Only clear dates if we're not using refined snippet (which already has dates)
     next.start = undefined;

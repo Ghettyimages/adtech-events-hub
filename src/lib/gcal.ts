@@ -288,11 +288,14 @@ export function convertEventToGoogleCalendar(event: {
  * Ensure a dedicated calendar exists for a user
  * Creates the calendar if it doesn't exist, returns the calendar ID
  * Checks for existing calendars first to prevent duplicates
+ * 
+ * NOTE: This is the low-level helper. For race-safe provisioning that claims
+ * the calendar ID in the database, use `provisionAndClaimCalendar()` instead.
  */
 export async function ensureDedicatedCalendar(
   accessToken: string,
   refreshToken: string | undefined
-): Promise<string> {
+): Promise<{ calendarId: string; created: boolean }> {
   const calendar = getCalendarClient(accessToken, refreshToken);
 
   try {
@@ -304,12 +307,12 @@ export async function ensureDedicatedCalendar(
     );
     
     if (existingCalendar?.id) {
-      console.log('Found existing "The Media Calendar", reusing:', existingCalendar.id);
-      return existingCalendar.id;
+      console.log('[ensureDedicatedCalendar] Reusing existing calendar:', existingCalendar.id);
+      return { calendarId: existingCalendar.id, created: false };
     }
 
     // Only create if no existing calendar found
-    console.log('No existing "The Media Calendar" found, creating new one...');
+    console.log('[ensureDedicatedCalendar] Creating new "The Media Calendar"...');
     const created = await calendar.calendars.insert({
       requestBody: {
         summary: 'The Media Calendar',
@@ -318,29 +321,166 @@ export async function ensureDedicatedCalendar(
       },
     });
 
-    console.log('Created new "The Media Calendar":', created.data.id);
-    return created.data.id!;
+    console.log('[ensureDedicatedCalendar] Created calendar:', created.data.id);
+    return { calendarId: created.data.id!, created: true };
   } catch (error: any) {
     // If creation fails with 409 (already exists), try to find it again
     // This handles race conditions where calendar was created between our check and creation
     if (error.code === 409 || error.message?.includes('already exists')) {
-      console.warn('Calendar creation conflict (409), searching for existing calendar...');
+      console.warn('[ensureDedicatedCalendar] Creation conflict (409), searching again...');
       try {
         const calendars = await calendar.calendarList.list();
         const mediaCalendar = calendars.data.items?.find(
           (cal) => cal.summary === 'The Media Calendar'
         );
         if (mediaCalendar?.id) {
-          console.log('Found calendar after conflict:', mediaCalendar.id);
-          return mediaCalendar.id;
+          console.log('[ensureDedicatedCalendar] Found after conflict:', mediaCalendar.id);
+          return { calendarId: mediaCalendar.id, created: false };
         }
       } catch (listError: any) {
-        console.error('Failed to list calendars after creation conflict:', listError);
+        console.error('[ensureDedicatedCalendar] Failed to list after conflict:', listError);
       }
     }
-    console.error('Error ensuring dedicated calendar:', error);
+    console.error('[ensureDedicatedCalendar] Error:', error);
     throw error;
   }
+}
+
+/**
+ * Delete a calendar by ID (best-effort, logs errors but doesn't throw)
+ */
+async function deleteCalendarBestEffort(
+  accessToken: string,
+  refreshToken: string | undefined,
+  calendarId: string
+): Promise<void> {
+  try {
+    const calendar = getCalendarClient(accessToken, refreshToken);
+    await calendar.calendars.delete({ calendarId });
+    console.log('[deleteCalendarBestEffort] Deleted duplicate calendar:', calendarId);
+  } catch (error: any) {
+    console.warn('[deleteCalendarBestEffort] Failed to delete calendar:', calendarId, error.message);
+    // Don't throw - this is best-effort cleanup
+  }
+}
+
+/**
+ * Verify a calendar ID is accessible in the user's Google account
+ */
+async function verifyCalendarExists(
+  accessToken: string,
+  refreshToken: string | undefined,
+  calendarId: string
+): Promise<boolean> {
+  try {
+    const calendar = getCalendarClient(accessToken, refreshToken);
+    await calendar.calendars.get({ calendarId });
+    return true;
+  } catch (error: any) {
+    if (error.code === 404) {
+      return false;
+    }
+    // For other errors (auth, network), assume it might exist
+    console.warn('[verifyCalendarExists] Error verifying calendar:', error.message);
+    return false;
+  }
+}
+
+export interface ProvisionResult {
+  calendarId: string;
+  action: 'existing' | 'created' | 'claimed_existing';
+}
+
+/**
+ * Provision and atomically claim a dedicated calendar for a user.
+ * 
+ * This is the single-writer helper that prevents duplicate calendars:
+ * 1. If user already has gcalCalendarId, verify it exists in Google and return it
+ * 2. If missing/invalid, find or create a calendar in Google
+ * 3. Atomically claim the calendarId in DB (only if still null)
+ * 4. If claim fails (another request won), delete the calendar we created (if any)
+ *    and return the winner's calendarId
+ * 
+ * @param userId - The user's database ID
+ * @param accessToken - Google OAuth access token
+ * @param refreshToken - Google OAuth refresh token
+ * @returns The claimed calendar ID and action taken
+ */
+export async function provisionAndClaimCalendar(
+  userId: string,
+  accessToken: string,
+  refreshToken: string | undefined
+): Promise<ProvisionResult> {
+  const { prisma } = await import('@/lib/db');
+
+  // Step 1: Check if user already has a valid calendar ID
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { gcalCalendarId: true },
+  });
+
+  if (user?.gcalCalendarId) {
+    // Verify it still exists in Google
+    const exists = await verifyCalendarExists(accessToken, refreshToken, user.gcalCalendarId);
+    if (exists) {
+      console.log('[provisionAndClaimCalendar] User already has valid calendar:', user.gcalCalendarId);
+      return { calendarId: user.gcalCalendarId, action: 'existing' };
+    }
+    // Calendar doesn't exist anymore, clear it and continue to provision
+    console.log('[provisionAndClaimCalendar] Stored calendar invalid, will provision new one');
+    await prisma.user.update({
+      where: { id: userId },
+      data: { gcalCalendarId: null },
+    });
+  }
+
+  // Step 2: Find or create a calendar in Google
+  const { calendarId: candidateId, created: wasCreated } = await ensureDedicatedCalendar(
+    accessToken,
+    refreshToken
+  );
+
+  // Step 3: Atomically claim the calendar ID (only if gcalCalendarId is still null)
+  // This uses updateMany which returns count instead of throwing on no-match
+  const claimResult = await prisma.user.updateMany({
+    where: {
+      id: userId,
+      gcalCalendarId: null, // Only claim if still null
+    },
+    data: {
+      gcalCalendarId: candidateId,
+      gcalSyncEnabled: true,
+    },
+  });
+
+  if (claimResult.count > 0) {
+    // We won the race!
+    console.log('[provisionAndClaimCalendar] Claim won, calendarId:', candidateId, 'created:', wasCreated);
+    return { calendarId: candidateId, action: wasCreated ? 'created' : 'claimed_existing' };
+  }
+
+  // Step 4: We lost the race - another request claimed a calendar first
+  console.log('[provisionAndClaimCalendar] Claim lost (another request won)');
+
+  // If we created a new calendar, delete it to avoid orphan duplicates
+  if (wasCreated) {
+    console.log('[provisionAndClaimCalendar] Deleting orphan calendar we created:', candidateId);
+    await deleteCalendarBestEffort(accessToken, refreshToken, candidateId);
+  }
+
+  // Re-read user to get the winner's calendar ID
+  const updatedUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { gcalCalendarId: true },
+  });
+
+  if (!updatedUser?.gcalCalendarId) {
+    // This shouldn't happen, but handle it gracefully
+    throw new Error('Failed to claim calendar and no winner found');
+  }
+
+  console.log('[provisionAndClaimCalendar] Using winner calendarId:', updatedUser.gcalCalendarId);
+  return { calendarId: updatedUser.gcalCalendarId, action: 'existing' };
 }
 
 /**

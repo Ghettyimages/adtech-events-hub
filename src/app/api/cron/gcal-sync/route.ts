@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import {
-  ensureDedicatedCalendar,
+  provisionAndClaimCalendar,
   upsertEventToGoogleCalendar,
   deleteEventFromGoogleCalendar,
   convertEventToGoogleCalendar,
@@ -71,27 +71,26 @@ export async function GET(request: NextRequest) {
 
         let accessToken = googleAccount.access_token;
         let refreshToken = googleAccount.refresh_token || undefined;
-        let calendarId = user.gcalCalendarId;
 
-        // Ensure calendar exists
-        if (!calendarId) {
-          try {
-            calendarId = await ensureDedicatedCalendar(accessToken, refreshToken);
-            await prisma.user.update({
-              where: { id: user.id },
-              data: { gcalCalendarId: calendarId },
-            });
-          } catch (error: any) {
-            results.errors.push(`User ${user.id}: Failed to ensure calendar: ${error.message}`);
-            await prisma.user.update({
-              where: { id: user.id },
-              data: {
-                gcalLastSyncError: `Failed to ensure calendar: ${error.message}`,
-                gcalLastSyncAttemptAt: new Date(),
-              },
-            });
-            continue;
-          }
+        // Use single-writer helper to provision and claim calendar (prevents duplicates)
+        let calendarId: string;
+        try {
+          const provisionResult = await provisionAndClaimCalendar(
+            user.id,
+            accessToken,
+            refreshToken
+          );
+          calendarId = provisionResult.calendarId;
+        } catch (error: any) {
+          results.errors.push(`User ${user.id}: Failed to ensure calendar: ${error.message}`);
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              gcalLastSyncError: `Failed to ensure calendar: ${error.message}`,
+              gcalLastSyncAttemptAt: new Date(),
+            },
+          });
+          continue;
         }
 
         // Handle token refresh if needed

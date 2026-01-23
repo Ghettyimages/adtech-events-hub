@@ -6,7 +6,7 @@ import {
   deleteEventFromGoogleCalendar,
   convertEventToGoogleCalendar,
   generateEventICalUID,
-  ensureDedicatedCalendar,
+  provisionAndClaimCalendar,
 } from '@/lib/gcal';
 
 export async function POST(request: NextRequest) {
@@ -32,11 +32,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Use single-writer helper to provision and claim calendar (prevents duplicates)
+    const provisionResult = await provisionAndClaimCalendar(
+      session.user.id,
+      googleAccount.access_token,
+      googleAccount.refresh_token || undefined
+    );
+    const calendarId = provisionResult.calendarId;
+
     // Get user's sync mode and followed events
     const dbUser = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
-        gcalCalendarId: true,
         gcalSyncMode: true,
         eventFollows: {
           include: { event: true },
@@ -49,21 +56,6 @@ export async function POST(request: NextRequest) {
     }
 
     const syncMode = dbUser.gcalSyncMode || 'FULL';
-
-    // Get user's calendar ID (ensure it exists)
-    let calendarId = dbUser.gcalCalendarId;
-
-    if (!calendarId) {
-      // Create dedicated calendar if it doesn't exist
-      calendarId = await ensureDedicatedCalendar(
-        googleAccount.access_token,
-        googleAccount.refresh_token || undefined
-      );
-      await prisma.user.update({
-        where: { id: session.user.id },
-        data: { gcalCalendarId: calendarId },
-      });
-    }
 
     // Determine which events to sync based on mode
     let eventsToSync: any[];

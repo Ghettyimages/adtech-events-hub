@@ -416,7 +416,7 @@ export default function Calendar() {
         <div className="flex items-center justify-between gap-4">
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
           >
             <svg
               className={`h-5 w-5 transition-transform ${showFilters ? 'rotate-180' : ''}`}
@@ -428,7 +428,7 @@ export default function Calendar() {
             </svg>
             Filters
             {hasActiveFilters && (
-              <span className="ml-1 rounded-full bg-purple-600 px-2 py-0.5 text-xs text-white">
+              <span className="ml-1 rounded-full bg-tmc-navy px-2 py-0.5 text-xs text-white">
                 {selectedTags.length + (filterCountry ? 1 : 0) + (filterRegion ? 1 : 0) + (filterCity ? 1 : 0) + (filterSource ? 1 : 0) + (sortOption !== 'date' ? 1 : 0)}
               </span>
             )}
@@ -584,7 +584,7 @@ export default function Calendar() {
               <select
                 value={filterCountry}
                 onChange={(e) => setFilterCountry(e.target.value)}
-                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-tmc-cyan focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
               >
                 <option value="">All Countries</option>
                 {availableCountries.map((country) => (
@@ -602,7 +602,7 @@ export default function Calendar() {
               <select
                 value={filterRegion}
                 onChange={(e) => setFilterRegion(e.target.value)}
-                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-tmc-cyan focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
               >
                 <option value="">All Regions</option>
                 {availableRegions.map((region) => (
@@ -622,7 +622,7 @@ export default function Calendar() {
                 value={filterCity}
                 onChange={(e) => setFilterCity(e.target.value)}
                 placeholder="Filter by city..."
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-tmc-cyan focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
               />
             </div>
 
@@ -633,7 +633,7 @@ export default function Calendar() {
               <select
                 value={filterSource}
                 onChange={(e) => setFilterSource(e.target.value)}
-                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-tmc-cyan focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
               >
                 <option value="">All Sources</option>
                 {availableSources.map((source) => (
@@ -653,7 +653,7 @@ export default function Calendar() {
             <select
               value={sortOption}
               onChange={(e) => setSortOption(e.target.value)}
-              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 sm:w-60"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-tmc-cyan focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 sm:w-60"
             >
               <option value="date">Date (Earliest First)</option>
               <option value="title">Title (A-Z)</option>
@@ -670,7 +670,7 @@ export default function Calendar() {
               onClick={() => setViewMode('calendar')}
               className={`rounded-md px-4 py-2 transition ${
                 viewMode === 'calendar'
-                  ? 'bg-purple-600 text-white shadow'
+                  ? 'bg-tmc-navy text-white shadow'
                   : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
               }`}
             >
@@ -681,7 +681,7 @@ export default function Calendar() {
               onClick={() => setViewMode('list')}
               className={`rounded-md px-4 py-2 transition ${
                 viewMode === 'list'
-                  ? 'bg-purple-600 text-white shadow'
+                  ? 'bg-tmc-navy text-white shadow'
                   : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
               }`}
             >
@@ -693,7 +693,7 @@ export default function Calendar() {
             type="button"
             onClick={handleExportList}
             disabled={!hasExportableEvents}
-            className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600 ${
+            className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tmc-navy ${
               hasExportableEvents
                 ? 'bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200'
                 : 'cursor-not-allowed bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-500'
@@ -713,7 +713,7 @@ export default function Calendar() {
                 id="date-filter"
                 value={filterOption}
                 onChange={(event) => setFilterOption(event.target.value as DateFilterOption)}
-                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 sm:w-60 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm focus:border-tmc-cyan focus:outline-none focus:ring-2 focus:ring-tmc-cyan sm:w-60 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
               >
                 <option value="upcoming">All upcoming events</option>
                 <option value="next_7_days">Next 7 days</option>
@@ -734,7 +734,7 @@ export default function Calendar() {
                     type="date"
                     value={customStart}
                     onChange={(event) => setCustomStart(event.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-tmc-cyan focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
                   />
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto">
@@ -746,7 +746,7 @@ export default function Calendar() {
                     type="date"
                     value={customEnd}
                     onChange={(event) => setCustomEnd(event.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-tmc-cyan focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
                   />
                 </div>
               </div>
@@ -776,7 +776,7 @@ export default function Calendar() {
                 right: 'dayGridMonth,dayGridWeek',
               }}
               height="auto"
-              eventColor="#3b82f6"
+              eventColor="#145AC6"
               eventDisplay="block"
             />
           </div>

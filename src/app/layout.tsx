@@ -29,7 +29,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <SessionProvider>
-          <header className="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
+          <header className="bg-tmc-gradient text-white shadow-lg">
             <div className="container mx-auto px-4 py-4">
               <nav className="flex items-center justify-between">
                 <Link href="/" className="flex items-center gap-2 text-2xl font-bold hover:opacity-90 transition">
@@ -45,7 +45,7 @@ export default function RootLayout({
                 <div className="flex gap-4 items-center">
                   <Link
                     href="/submit"
-                    className="bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold hover:bg-blue-50 transition"
+                    className="bg-white text-tmc-navy px-4 py-2 rounded-lg font-semibold hover:bg-slate-50 transition"
                   >
                     Submit Event
                   </Link>

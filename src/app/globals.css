@@ -3,14 +3,37 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* TMC Brand Colors */
+  --tmc-ink: #0B1220;
+  --tmc-navy: #0B2A66;
+  --tmc-blue: #145AC6;
+  --tmc-cyan: #12C7E8;
+  --tmc-cyan-soft: #76F2FF;
+  
+  /* TMC Neutrals */
+  --tmc-bg: #F8FAFC;
+  --tmc-surface: #FFFFFF;
+  --tmc-border: #E2E8F0;
+  --tmc-muted: #475569;
+  
+  /* TMC Gradient */
+  --tmc-gradient: linear-gradient(90deg, #0B2A66 0%, #145AC6 45%, #12C7E8 100%);
+  
+  /* Base theme (aligned with TMC neutrals) */
+  --background: #F8FAFC;
+  --foreground: #0B1220;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    
+    /* TMC dark mode adjustments */
+    --tmc-bg: #0a0a0a;
+    --tmc-surface: #1a1a2e;
+    --tmc-border: #2d2d44;
+    --tmc-muted: #94a3b8;
   }
 }
 
@@ -28,9 +51,9 @@ body {
   }
 }
 
-/* FullCalendar day header styling - make days of the week more visible */
+/* FullCalendar day header styling - TMC branded */
 .fc-col-header-cell {
-  background-color: #1f2937 !important;
+  background-color: var(--tmc-navy) !important;
   color: #f9fafb !important;
   font-weight: 600 !important;
   padding: 0.75rem 0.5rem !important;
@@ -41,25 +64,25 @@ body {
   font-weight: 600 !important;
 }
 
-/* Dark mode support for calendar headers - class-based (Tailwind) */
+/* Dark mode support for calendar headers - keep TMC navy consistent */
 .dark .fc-col-header-cell {
-  background-color: #f9fafb !important;
-  color: #1f2937 !important;
+  background-color: var(--tmc-navy) !important;
+  color: #f9fafb !important;
 }
 
 .dark .fc-col-header-cell-cushion {
-  color: #1f2937 !important;
+  color: #f9fafb !important;
 }
 
 /* Dark mode support for calendar headers - media query fallback */
 @media (prefers-color-scheme: dark) {
   .fc-col-header-cell {
-    background-color: #f9fafb !important;
-    color: #1f2937 !important;
+    background-color: var(--tmc-navy) !important;
+    color: #f9fafb !important;
   }
 
   .fc-col-header-cell-cushion {
-    color: #1f2937 !important;
+    color: #f9fafb !important;
   }
 }
 

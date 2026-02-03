@@ -119,6 +119,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               consentEmail: true,
               consentCalendar: true,
               isAdmin: true,
+              isOrganizer: true,
             },
           });
 
@@ -153,6 +154,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             );
             (session.user as any).isProfileComplete = isProfileComplete;
             (session.user as any).isAdmin = dbUser.isAdmin || false;
+            (session.user as any).isOrganizer = dbUser.isOrganizer || false;
           }
         } catch (error) {
           console.error('Error in session callback:', error);

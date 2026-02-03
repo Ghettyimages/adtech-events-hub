@@ -13,6 +13,9 @@ export default function AuthNav() {
   }
 
   if (session) {
+    const isOrganizerOrAdmin =
+      (session.user as any)?.isOrganizer || (session.user as any)?.isAdmin;
+
     return (
       <div className="flex gap-4 items-center">
         <Link
@@ -21,6 +24,20 @@ export default function AuthNav() {
         >
           My Subscriptions
         </Link>
+        <Link
+          href="/speaker-profile"
+          className="text-white hover:underline text-sm"
+        >
+          Speaker Profile
+        </Link>
+        {isOrganizerOrAdmin && (
+          <Link
+            href="/speakers"
+            className="text-white hover:underline text-sm"
+          >
+            Speakers
+          </Link>
+        )}
         <Link
           href="/profile"
           className="text-white hover:underline text-sm"

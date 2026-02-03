@@ -68,8 +68,9 @@ model User {
   consentEmail        Boolean  @default(false)
   consentCalendar     Boolean  @default(false)
   termsAcceptedAt     DateTime?
-  // Admin access
+  // Admin & Organizer access
   isAdmin             Boolean  @default(false)
+  isOrganizer         Boolean  @default(false)  // Can access speaker directory
   // Token for personal iCal feeds
   feedToken     String?  @unique
   // Google Calendar integration
@@ -92,6 +93,8 @@ model User {
   filterExclusions FilterExclusion[]
   // Events submitted by this user
   submittedEvents Event[] @relation("SubmittedEvents")
+  // Speaker profile (1:1)
+  speakerProfile SpeakerProfile?
 }
 
 model Account {
@@ -165,6 +168,8 @@ model Tag {
   usageCount  Int      @default(0)  // Cache count of events using this tag
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // Speaker profile topics relation
+  speakerProfileTopics SpeakerProfileTopic[]
   
   @@index([name])
 }
@@ -195,4 +200,128 @@ model FilterExclusion {
   @@index([userId])
   @@index([eventId])
   @@index([subscriptionId])
+}
+
+// ==========================================
+// Speaker Profile Models
+// ==========================================
+
+model SpeakerProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Identity & basics
+  displayName     String?  // Optional; defaults to User.name in UI
+  pronouns        String?  // Optional pronouns
+  company         String?
+  roleTitle       String?
+  
+  // Location (structured for filtering)
+  location        String?  // Freeform location text
+  country         String?
+  region          String?  // State/province
+  city            String?
+  timezone        String?
+  
+  // Bio & notes
+  bio             String?  @db.Text  // Main speaker bio (freeform)
+  notes           String?  @db.Text  // Additional notes/context for organizers
+  
+  // Links
+  linkedinUrl     String?
+  websiteUrl      String?
+  
+  // Experience
+  experienceLevel String   @default("SOME")  // FIRST_TIME | SOME | FREQUENT
+  
+  // Talk formats (stored as JSON array string)
+  talkFormats     String?  // JSON array: ["keynote", "panel", "workshop", "webinar", "moderator"]
+  
+  // Availability
+  availableVirtual    Boolean @default(true)
+  availableInPerson   Boolean @default(true)
+  noticePeriodDays    Int?    // Minimum notice needed (e.g., 3 = can do 72-hour notice)
+  willingToTravel     Boolean @default(false)
+  
+  // Contact info (privacy-aware)
+  contactEmail        String?
+  contactPhone        String?
+  preferredContact    String?  // EMAIL | PHONE | LINKEDIN
+  contactVisibility   String   @default("ORGANIZERS_ONLY")  // PRIVATE | ORGANIZERS_ONLY | PUBLIC
+  
+  // Publication status
+  status          String   @default("DRAFT")  // DRAFT | PUBLISHED
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  topics          SpeakerProfileTopic[]
+  engagements     SpeakerEngagement[]
+  credentials     SpeakerCredential[]
+  
+  @@index([status])
+  @@index([country])
+  @@index([experienceLevel])
+  @@index([availableVirtual])
+  @@index([availableInPerson])
+}
+
+model SpeakerProfileTopic {
+  id                String   @id @default(cuid())
+  speakerProfileId  String
+  tagId             String
+  isPrimary         Boolean  @default(false)  // Is this a primary expertise area?
+  proficiency       String?  // Optional: BEGINNER | INTERMEDIATE | EXPERT
+  createdAt         DateTime @default(now())
+  
+  speakerProfile    SpeakerProfile @relation(fields: [speakerProfileId], references: [id], onDelete: Cascade)
+  tag               Tag            @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  
+  @@unique([speakerProfileId, tagId])
+  @@index([speakerProfileId])
+  @@index([tagId])
+}
+
+model SpeakerEngagement {
+  id                String   @id @default(cuid())
+  speakerProfileId  String
+  
+  eventName         String
+  talkTitle         String?
+  eventDate         DateTime?
+  eventUrl          String?
+  location          String?
+  role              String   @default("SPEAKER")  // SPEAKER | MODERATOR | PANELIST | WORKSHOP_LEADER
+  audienceSize      Int?     // Optional audience size
+  videoUrl          String?  // Link to recording
+  slidesUrl         String?  // Link to slides
+  notes             String?  @db.Text
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  speakerProfile    SpeakerProfile @relation(fields: [speakerProfileId], references: [id], onDelete: Cascade)
+  
+  @@index([speakerProfileId])
+}
+
+model SpeakerCredential {
+  id                String   @id @default(cuid())
+  speakerProfileId  String
+  
+  name              String   // Credential name
+  issuer            String?  // Organization that issued it
+  issuedAt          DateTime?
+  expiresAt         DateTime?
+  credentialUrl     String?  // Link to verify or view credential
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  speakerProfile    SpeakerProfile @relation(fields: [speakerProfileId], references: [id], onDelete: Cascade)
+  
+  @@index([speakerProfileId])
 }

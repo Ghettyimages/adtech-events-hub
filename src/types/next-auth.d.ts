@@ -14,6 +14,9 @@ declare module 'next-auth' {
       location?: string | null;
       consentEmail?: boolean;
       consentCalendar?: boolean;
+      isProfileComplete?: boolean;
+      isAdmin?: boolean;
+      isOrganizer?: boolean;
     };
   }
 

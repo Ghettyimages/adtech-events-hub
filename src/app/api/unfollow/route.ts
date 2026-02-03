@@ -9,6 +9,8 @@ import {
 
 const unfollowSchema = z.object({
   eventId: z.string(),
+  excludeFromFilter: z.boolean().optional(), // If true, create FilterExclusion to prevent re-follow
+  confirmUnfollow: z.boolean().optional(), // Required for FILTER-sourced follows if not excluding
 });
 
 export async function POST(request: NextRequest) {
@@ -20,14 +22,22 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { eventId } = unfollowSchema.parse(body);
+    const { eventId, excludeFromFilter, confirmUnfollow } = unfollowSchema.parse(body);
 
-    // Find and delete EventFollow
+    // Find the EventFollow
     const eventFollow = await prisma.eventFollow.findUnique({
       where: {
         userId_eventId: {
           userId: session.user.id,
           eventId,
+        },
+      },
+      include: {
+        subscription: {
+          select: {
+            id: true,
+            filter: true,
+          },
         },
       },
     });
@@ -39,6 +49,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if this is a FILTER-sourced follow
+    const isFilterSourced = eventFollow.source === 'FILTER';
+    const hasFilterSubscription = eventFollow.subscription?.filter !== null;
+
+    // If it's a filter-sourced follow and no exclusion/confirm choice made, prompt the user
+    if (isFilterSourced && hasFilterSubscription) {
+      if (excludeFromFilter === undefined && confirmUnfollow !== true) {
+        return NextResponse.json({
+          requiresExclusionChoice: true,
+          message: 'This event was added by a filter subscription. Would you like to exclude it permanently or allow it to be re-added later?',
+          eventId,
+          subscriptionId: eventFollow.subscriptionId,
+        });
+      }
+    }
+
+    // If user chose to exclude permanently, create FilterExclusion record
+    if (excludeFromFilter === true && eventFollow.subscriptionId) {
+      await prisma.filterExclusion.upsert({
+        where: {
+          userId_eventId_subscriptionId: {
+            userId: session.user.id,
+            eventId,
+            subscriptionId: eventFollow.subscriptionId,
+          },
+        },
+        create: {
+          userId: session.user.id,
+          eventId,
+          subscriptionId: eventFollow.subscriptionId,
+        },
+        update: {}, // No update needed, just ensure it exists
+      });
+    }
+
+    // Delete the EventFollow
     await prisma.eventFollow.delete({
       where: {
         id: eventFollow.id,
@@ -111,6 +157,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       message: 'Event unfollowed successfully',
       gcalRemoved,
+      excluded: excludeFromFilter === true,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -127,4 +174,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

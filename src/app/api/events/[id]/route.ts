@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { updateEventSchema, updateEventStatusSchema } from '@/lib/validation';
+import { processFilterSubscriptionsForEvent } from '@/lib/filters';
 
 export async function GET(
   request: NextRequest,
@@ -45,6 +46,13 @@ export async function PATCH(
 
     // Check if this is just a status update (backward compatibility)
     if (body.status && Object.keys(body).length === 1) {
+      // Get old status to check if this is a new publish
+      const oldEvent = await prisma.event.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+      const wasPublished = oldEvent?.status === 'PUBLISHED';
+
       const validatedData = updateEventStatusSchema.parse({ id, status: body.status });
       
       const event = await prisma.event.update({
@@ -62,6 +70,11 @@ export async function PATCH(
             gcalSyncPending: true,
           },
         });
+
+        // If this is a new publish (not already published), process filter subscriptions
+        if (!wasPublished) {
+          await processFilterSubscriptionsForEvent(event.id, event);
+        }
       }
 
       return NextResponse.json({ event });
@@ -173,6 +186,10 @@ export async function PATCH(
 
     console.log('Update data to be saved:', JSON.stringify(updateData, null, 2));
     
+    // Check if this is a new publish to process filter subscriptions
+    const wasPublished = existingEvent?.status === 'PUBLISHED';
+    const willBePublished = updateData.status === 'PUBLISHED' || (updateData.status === undefined && wasPublished);
+
     const event = await prisma.event.update({
       where: { id },
       data: updateData,
@@ -189,6 +206,11 @@ export async function PATCH(
           gcalSyncPending: true,
         },
       });
+
+      // If this is a new publish (not already published), process filter subscriptions
+      if (!wasPublished && willBePublished) {
+        await processFilterSubscriptionsForEvent(event.id, event);
+      }
     }
 
     console.log('Event updated successfully:', event.id);

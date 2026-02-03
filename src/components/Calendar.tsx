@@ -20,6 +20,7 @@ import { getDisplayName } from '@/lib/tags';
 import EventCard from './EventCard';
 import EventList from './EventList';
 import SubscribeModal from './SubscribeModal';
+import LargeFilterWarning from './LargeFilterWarning';
 
 type DateFilterOption = 'upcoming' | 'next_7_days' | 'next_30_days' | 'this_month' | 'custom';
 
@@ -37,6 +38,15 @@ export default function Calendar() {
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [feedToken, setFeedToken] = useState<string | null>(null);
+  
+  // Large filter warning state
+  const [largeFilterWarning, setLargeFilterWarning] = useState<{
+    isOpen: boolean;
+    matchCount: number;
+    totalCount: number;
+    percentage: number;
+    filterDescription: string;
+  } | null>(null);
 
   // Filter state from URL params
   const [selectedTags, setSelectedTags] = useState<string[]>(
@@ -374,7 +384,7 @@ export default function Calendar() {
     return parts.join(' • ') || 'Current filter';
   };
 
-  const handleSubscribeToFilter = async () => {
+  const handleSubscribeToFilter = async (forceSubscribe: boolean = false) => {
     const filter = {
       tags: selectedTags.length > 0 ? selectedTags : undefined,
       country: filterCountry || undefined,
@@ -383,22 +393,44 @@ export default function Calendar() {
       source: filterSource || undefined,
     };
 
-    const res = await fetch('/api/subscriptions/custom/filter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        filter,
-        acceptTerms: true,
-      }),
-    });
+    setIsSubscribing(true);
+    try {
+      const res = await fetch('/api/subscriptions/custom/filter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filter,
+          acceptTerms: true,
+          forceSubscribe,
+        }),
+      });
 
-    if (res.ok) {
       const data = await res.json();
-      setFeedToken(data.feedToken || feedToken);
-      setShowSubscribeModal(false);
-    } else {
-      const error = await res.json();
-      throw new Error(error.error || 'Failed to subscribe to filter');
+
+      // Check if we need to show the large filter warning
+      if (data.suggestFullSubscription && !forceSubscribe) {
+        setLargeFilterWarning({
+          isOpen: true,
+          matchCount: data.stats?.matchCount || 0,
+          totalCount: data.stats?.totalCount || 0,
+          percentage: data.stats?.percentage || 0,
+          filterDescription: data.filterDescription || getFilterDescription(),
+        });
+        setShowSubscribeModal(false);
+        return;
+      }
+
+      if (res.ok) {
+        setFeedToken(data.feedToken || feedToken);
+        setShowSubscribeModal(false);
+        setLargeFilterWarning(null);
+      } else {
+        throw new Error(data.error || 'Failed to subscribe to filter');
+      }
+    } catch (error: any) {
+      alert(error.message || 'Failed to subscribe to filter');
+    } finally {
+      setIsSubscribing(false);
     }
   };
 
@@ -795,12 +827,24 @@ export default function Calendar() {
       <SubscribeModal
         isOpen={showSubscribeModal}
         onClose={() => setShowSubscribeModal(false)}
-        onConfirm={handleSubscribeToFilter}
+        onConfirm={() => handleSubscribeToFilter(false)}
         title="Subscribe to Filter"
         description={`Subscribe to receive events matching: ${getFilterDescription()}. Your calendar feed will automatically update as new events are added that match these filters.`}
         feedToken={feedToken}
         subscriptionType="custom"
       />
+
+      {largeFilterWarning && (
+        <LargeFilterWarning
+          isOpen={largeFilterWarning.isOpen}
+          onClose={() => setLargeFilterWarning(null)}
+          onSubscribeAnyway={() => handleSubscribeToFilter(true)}
+          matchCount={largeFilterWarning.matchCount}
+          totalCount={largeFilterWarning.totalCount}
+          percentage={largeFilterWarning.percentage}
+          filterDescription={largeFilterWarning.filterDescription}
+        />
+      )}
     </div>
   );
 }

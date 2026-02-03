@@ -12,12 +12,21 @@ interface Subscription {
   id: string;
   kind: string;
   active: boolean;
+  filter?: string | null;
   createdAt: string;
+}
+
+interface FilterSubscription extends Subscription {
+  filter: string;
+  filterDescription?: string;
+  matchCount?: number;
 }
 
 interface EventFollow {
   id: string;
   eventId: string;
+  source: string;
+  subscriptionId?: string | null;
   createdAt: string;
   event: {
     id: string;
@@ -53,6 +62,26 @@ export default function SubscriptionsPage() {
   const [isCleaningUp, setIsCleaningUp] = useState(false);
   const [isChangingMode, setIsChangingMode] = useState(false);
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+  
+  // Filter subscriptions state
+  const [filterSubscriptions, setFilterSubscriptions] = useState<FilterSubscription[]>([]);
+  const [deletingFilterId, setDeletingFilterId] = useState<string | null>(null);
+  
+  // Modal state for unfollow exclusion choice
+  const [unfollowModal, setUnfollowModal] = useState<{
+    isOpen: boolean;
+    eventId: string;
+    eventTitle: string;
+    subscriptionId?: string;
+  } | null>(null);
+  
+  // Modal state for delete filter choice
+  const [deleteFilterModal, setDeleteFilterModal] = useState<{
+    isOpen: boolean;
+    subscriptionId: string;
+    filterDescription: string;
+    followCount: number;
+  } | null>(null);
 
   useEffect(() => {
     console.log('🔍 useEffect triggered - status:', status, 'session:', !!session);
@@ -78,7 +107,38 @@ export default function SubscriptionsPage() {
       const response = await fetch('/api/subscriptions');
       if (response.ok) {
         const data = await response.json();
-        setSubscriptions(data.subscriptions || []);
+        const allSubscriptions: Subscription[] = data.subscriptions || [];
+        
+        // Separate filter subscriptions from other subscriptions
+        const filters: FilterSubscription[] = [];
+        const others: Subscription[] = [];
+        
+        for (const sub of allSubscriptions) {
+          if (sub.kind === 'CUSTOM' && sub.filter) {
+            try {
+              const filterObj = JSON.parse(sub.filter);
+              const parts: string[] = [];
+              if (filterObj.tags?.length > 0) parts.push(`Tags: ${filterObj.tags.join(', ')}`);
+              if (filterObj.country) parts.push(`Country: ${filterObj.country}`);
+              if (filterObj.region) parts.push(`Region: ${filterObj.region}`);
+              if (filterObj.city) parts.push(`City: ${filterObj.city}`);
+              if (filterObj.source) parts.push(`Source: ${filterObj.source}`);
+              
+              filters.push({
+                ...sub,
+                filter: sub.filter,
+                filterDescription: parts.length > 0 ? parts.join(' • ') : 'All events',
+              });
+            } catch {
+              others.push(sub);
+            }
+          } else {
+            others.push(sub);
+          }
+        }
+        
+        setSubscriptions(others);
+        setFilterSubscriptions(filters);
         setEventFollows(data.eventFollows || []);
         setFeedToken(data.feedToken);
       } else {
@@ -299,25 +359,79 @@ export default function SubscriptionsPage() {
     }
   };
 
-  const handleUnfollow = async (eventId: string) => {
+  const handleUnfollow = async (eventId: string, excludeFromFilter?: boolean, confirmUnfollow?: boolean) => {
     setUnfollowingId(eventId);
     try {
       const response = await fetch('/api/unfollow', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId }),
+        body: JSON.stringify({ eventId, excludeFromFilter, confirmUnfollow }),
       });
+
+      const data = await response.json();
+      
+      if (data.requiresExclusionChoice) {
+        // Show modal to ask about exclusion
+        const eventFollow = eventFollows.find((ef) => ef.eventId === eventId);
+        setUnfollowModal({
+          isOpen: true,
+          eventId,
+          eventTitle: eventFollow?.event.title || 'this event',
+          subscriptionId: data.subscriptionId,
+        });
+        setUnfollowingId(null);
+        return;
+      }
 
       if (response.ok) {
         setEventFollows(eventFollows.filter((ef) => ef.eventId !== eventId));
+        setUnfollowModal(null);
       } else {
-        const error = await response.json();
-        alert(error.error || 'Failed to unfollow event');
+        alert(data.error || 'Failed to unfollow event');
       }
     } catch (error) {
       alert('An error occurred');
     } finally {
       setUnfollowingId(null);
+    }
+  };
+
+  const handleDeleteFilterSubscription = async (subscriptionId: string, keepFollows?: boolean, confirmDelete?: boolean) => {
+    setDeletingFilterId(subscriptionId);
+    try {
+      const response = await fetch(`/api/subscriptions/${subscriptionId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepFollows, confirmDelete }),
+      });
+
+      const data = await response.json();
+      
+      if (data.requiresCleanupChoice) {
+        // Get filter description for the modal
+        const filterSub = filterSubscriptions.find((f) => f.id === subscriptionId);
+        setDeleteFilterModal({
+          isOpen: true,
+          subscriptionId,
+          filterDescription: filterSub?.filterDescription || 'this filter',
+          followCount: data.followCount,
+        });
+        setDeletingFilterId(null);
+        return;
+      }
+
+      if (response.ok) {
+        setFilterSubscriptions(filterSubscriptions.filter((f) => f.id !== subscriptionId));
+        setDeleteFilterModal(null);
+        // Refresh event follows in case some were removed
+        fetchSubscriptions();
+      } else {
+        alert(data.error || 'Failed to delete filter subscription');
+      }
+    } catch (error) {
+      alert('An error occurred');
+    } finally {
+      setDeletingFilterId(null);
     }
   };
 
@@ -700,6 +814,48 @@ export default function SubscriptionsPage() {
             )}
           </div>
 
+          {/* Filter Subscriptions Section */}
+          {filterSubscriptions.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                My Filter Subscriptions ({filterSubscriptions.length})
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                These filters automatically add matching events to your calendar.
+              </p>
+              <div className="space-y-3">
+                {filterSubscriptions.map((filterSub) => (
+                  <div
+                    key={filterSub.id}
+                    className="flex items-center justify-between p-4 border border-purple-200 dark:border-purple-700 rounded-lg bg-purple-50 dark:bg-purple-900/20"
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-purple-600 dark:text-purple-400">🔍</span>
+                        <h4 className="font-semibold text-gray-900 dark:text-white text-sm">
+                          {filterSub.filterDescription}
+                        </h4>
+                      </div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                        Created {format(new Date(filterSub.createdAt), 'PP')}
+                        {filterSub.matchCount !== undefined && (
+                          <span className="ml-2">• {filterSub.matchCount} events matched</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteFilterSubscription(filterSub.id)}
+                      disabled={deletingFilterId === filterSub.id}
+                      className="ml-4 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50"
+                    >
+                      {deletingFilterId === filterSub.id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Custom Subscriptions Section */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -750,12 +906,23 @@ export default function SubscriptionsPage() {
                 {eventFollows.map((eventFollow) => (
                   <div
                     key={eventFollow.id}
-                    className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+                    className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition ${
+                      eventFollow.source === 'FILTER'
+                        ? 'border-purple-200 dark:border-purple-700 bg-purple-50/50 dark:bg-purple-900/10'
+                        : 'border-gray-200 dark:border-gray-700'
+                    }`}
                   >
                     <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 dark:text-white text-sm">
-                        {eventFollow.event.title}
-                      </h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-gray-900 dark:text-white text-sm">
+                          {eventFollow.event.title}
+                        </h4>
+                        {eventFollow.source === 'FILTER' && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                            Filter
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                         <span>
                           {format(new Date(eventFollow.event.start), 'PP')}
@@ -788,6 +955,81 @@ export default function SubscriptionsPage() {
           </Link>
         </div>
       </div>
+
+      {/* Unfollow Exclusion Modal */}
+      {unfollowModal?.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Unfollow Event
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+              "{unfollowModal.eventTitle}" was added by a filter subscription. Would you like to exclude it permanently from this filter, or allow it to be re-added later if it still matches?
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => handleUnfollow(unfollowModal.eventId, true)}
+                disabled={unfollowingId === unfollowModal.eventId}
+                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold disabled:opacity-50"
+              >
+                {unfollowingId === unfollowModal.eventId ? 'Removing...' : 'Exclude Permanently'}
+              </button>
+              <button
+                onClick={() => handleUnfollow(unfollowModal.eventId, false, true)}
+                disabled={unfollowingId === unfollowModal.eventId}
+                className="w-full px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-semibold disabled:opacity-50"
+              >
+                {unfollowingId === unfollowModal.eventId ? 'Removing...' : 'Remove (May Re-add Later)'}
+              </button>
+              <button
+                onClick={() => setUnfollowModal(null)}
+                className="w-full px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Filter Modal */}
+      {deleteFilterModal?.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Delete Filter Subscription
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              This filter subscription has <strong>{deleteFilterModal.followCount} events</strong> that were auto-followed.
+            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+              Would you like to keep these events as individual follows, or remove them along with the filter?
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => handleDeleteFilterSubscription(deleteFilterModal.subscriptionId, true, true)}
+                disabled={deletingFilterId === deleteFilterModal.subscriptionId}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50"
+              >
+                {deletingFilterId === deleteFilterModal.subscriptionId ? 'Deleting...' : 'Keep Events'}
+              </button>
+              <button
+                onClick={() => handleDeleteFilterSubscription(deleteFilterModal.subscriptionId, false, true)}
+                disabled={deletingFilterId === deleteFilterModal.subscriptionId}
+                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold disabled:opacity-50"
+              >
+                {deletingFilterId === deleteFilterModal.subscriptionId ? 'Deleting...' : 'Remove Events'}
+              </button>
+              <button
+                onClick={() => setDeleteFilterModal(null)}
+                className="w-full px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

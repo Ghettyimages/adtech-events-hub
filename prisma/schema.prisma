@@ -35,6 +35,7 @@ model Event {
   // relations
   follows     EventFollow[]
   userEventSyncs UserEventSync[]
+  filterExclusions FilterExclusion[]
   submitter   User?    @relation("SubmittedEvents", fields: [submittedBy], references: [id])
 }
 
@@ -88,6 +89,7 @@ model User {
   subscriptions Subscription[]
   eventFollows  EventFollow[]
   userEventSyncs UserEventSync[]
+  filterExclusions FilterExclusion[]
   // Events submitted by this user
   submittedEvents Event[] @relation("SubmittedEvents")
 }
@@ -134,6 +136,7 @@ model Subscription {
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   selections  EventFollow[]
+  filterExclusions FilterExclusion[]
   @@index([userId, kind, active])
 }
 
@@ -142,12 +145,14 @@ model EventFollow {
   userId         String
   eventId        String
   subscriptionId String?
+  source         String   @default("MANUAL")  // "MANUAL" | "FILTER"
   createdAt      DateTime @default(now())
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   @@unique([userId, eventId]) // a user follows an event at most once
   @@index([eventId])
+  @@index([subscriptionId])
 }
 
 model Tag {
@@ -175,4 +180,19 @@ model UserEventSync {
   @@unique([userId, eventId])
   @@index([userId])
   @@index([eventId])
+}
+
+model FilterExclusion {
+  id             String   @id @default(cuid())
+  userId         String
+  eventId        String
+  subscriptionId String   // The filter subscription this exclusion applies to
+  createdAt      DateTime @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  @@unique([userId, eventId, subscriptionId])
+  @@index([userId])
+  @@index([eventId])
+  @@index([subscriptionId])
 }

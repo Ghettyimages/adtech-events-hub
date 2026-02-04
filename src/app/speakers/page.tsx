@@ -81,7 +81,18 @@ function SpeakersContent() {
   const isOrganizerOrAdmin =
     (session?.user as any)?.isOrganizer || (session?.user as any)?.isAdmin;
 
-  const fetchSpeakers = useCallback(async () => {
+  // Track if initial load has happened
+  const [hasInitialLoad, setHasInitialLoad] = useState(false);
+
+  const fetchSpeakers = useCallback(async (options?: {
+    query?: string;
+    topics?: string[];
+    experience?: string;
+    virtual?: boolean;
+    inPerson?: boolean;
+    sort?: string;
+    page?: number;
+  }) => {
     if (!isOrganizerOrAdmin) return;
 
     setIsLoading(true);
@@ -89,13 +100,21 @@ function SpeakersContent() {
 
     try {
       const params = new URLSearchParams();
-      if (searchQuery) params.set('q', searchQuery);
-      if (selectedTopics.length > 0) params.set('topics', selectedTopics.join(','));
-      if (experienceLevel) params.set('experienceLevel', experienceLevel);
-      if (availableVirtual) params.set('availableVirtual', 'true');
-      if (availableInPerson) params.set('availableInPerson', 'true');
-      params.set('sort', sortBy);
-      params.set('page', currentPage.toString());
+      const q = options?.query ?? searchQuery;
+      const t = options?.topics ?? selectedTopics;
+      const exp = options?.experience ?? experienceLevel;
+      const virt = options?.virtual ?? availableVirtual;
+      const inP = options?.inPerson ?? availableInPerson;
+      const s = options?.sort ?? sortBy;
+      const p = options?.page ?? currentPage;
+
+      if (q) params.set('q', q);
+      if (t.length > 0) params.set('topics', t.join(','));
+      if (exp) params.set('experienceLevel', exp);
+      if (virt) params.set('availableVirtual', 'true');
+      if (inP) params.set('availableInPerson', 'true');
+      params.set('sort', s);
+      params.set('page', p.toString());
 
       const response = await fetch(`/api/speakers?${params.toString()}`);
 
@@ -116,37 +135,39 @@ function SpeakersContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [
-    isOrganizerOrAdmin,
-    searchQuery,
-    selectedTopics,
-    experienceLevel,
-    availableVirtual,
-    availableInPerson,
-    sortBy,
-    currentPage,
-  ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOrganizerOrAdmin]);
 
+  // Initial load only - fetch all speakers once when page loads
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login?callbackUrl=/speakers');
       return;
     }
 
-    if (status === 'authenticated') {
+    if (status === 'authenticated' && !hasInitialLoad) {
       if (!isOrganizerOrAdmin) {
         setError('You do not have permission to view the speaker directory.');
         setIsLoading(false);
         return;
       }
+      setHasInitialLoad(true);
       fetchSpeakers();
     }
-  }, [status, isOrganizerOrAdmin, fetchSpeakers, router]);
+  }, [status, isOrganizerOrAdmin, hasInitialLoad, fetchSpeakers, router]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setCurrentPage(1);
-    fetchSpeakers();
+    fetchSpeakers({
+      query: searchQuery,
+      topics: selectedTopics,
+      experience: experienceLevel,
+      virtual: availableVirtual,
+      inPerson: availableInPerson,
+      sort: sortBy,
+      page: 1,
+    });
   };
 
   const handleReset = () => {
@@ -157,6 +178,16 @@ function SpeakersContent() {
     setAvailableInPerson(false);
     setSortBy('recent');
     setCurrentPage(1);
+    // Fetch with reset values
+    fetchSpeakers({
+      query: '',
+      topics: [],
+      experience: '',
+      virtual: false,
+      inPerson: false,
+      sort: 'recent',
+      page: 1,
+    });
   };
 
   if (status === 'loading' || (status === 'authenticated' && isLoading && speakers.length === 0)) {
@@ -449,7 +480,11 @@ function SpeakersContent() {
           {pagination && pagination.totalPages > 1 && (
             <div className="flex justify-center gap-2 mt-8">
               <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                onClick={() => {
+                  const newPage = Math.max(1, currentPage - 1);
+                  setCurrentPage(newPage);
+                  fetchSpeakers({ page: newPage });
+                }}
                 disabled={currentPage === 1}
                 className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -461,7 +496,11 @@ function SpeakersContent() {
               </span>
 
               <button
-                onClick={() => setCurrentPage((p) => Math.min(pagination.totalPages, p + 1))}
+                onClick={() => {
+                  const newPage = Math.min(pagination.totalPages, currentPage + 1);
+                  setCurrentPage(newPage);
+                  fetchSpeakers({ page: newPage });
+                }}
                 disabled={!pagination.hasMore}
                 className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >

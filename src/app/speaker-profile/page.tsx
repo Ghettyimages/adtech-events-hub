@@ -192,6 +192,27 @@ export default function SpeakerProfilePage() {
     setSuccess('');
 
     try {
+      // First, save the current form data
+      const saveResponse = await fetch('/api/speaker-profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...formData,
+          noticePeriodDays: formData.noticePeriodDays
+            ? parseInt(formData.noticePeriodDays, 10)
+            : null,
+        }),
+      });
+
+      if (!saveResponse.ok) {
+        const saveError = await saveResponse.json();
+        setError(saveError.error || 'Failed to save profile before publishing');
+        return;
+      }
+
+      // Now attempt to publish
       const response = await fetch('/api/speaker-profile/publish', {
         method: 'POST',
       });

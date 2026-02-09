@@ -24,6 +24,7 @@ type AgentRawEvent = {
   location: string | null;
   link: string | null;
   source: string | null;
+  description?: string | null;
 };
 
 const systemPrompt = `You are an expert agent for extracting event details from websites. 
@@ -52,7 +53,11 @@ Output: Return a JSON array where each item is exactly this shape and order:
 
 "link": "https://example.com/event-page", 
 
-"source": "MediaPost" } ]
+"source": "MediaPost", 
+
+"description": "Two to three sentences summarizing what the event is, who it is for or which topics it covers, and format (e.g. conference, summit, webinar). Copy or paraphrase only from the page; use null if not clearly present." } ]
+
+Description (no hallucination): Provide 2–3 sentences only when the page clearly states or implies them. Copy or paraphrase from visible text or meta. Do not invent speakers, agenda, or sponsors. Prefer: what the event is, who it’s for or topics, and format. Use null when not confidently available. No markdown or bullets.
 
 CRITICAL - Multi-Day Events: Many industry events span multiple days, sometimes across different months. Always capture the FULL date range:
 - Single day: { "start": "Oct 29, 2025", "end": "Oct 29, 2025" }
@@ -123,6 +128,7 @@ const mapAgentEvents = (rawEvents: AgentRawEvent[], finalUrl: string): Extracted
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
 
+    const description = raw.description?.trim() || undefined;
     const event: ExtractedEvent = {
       title,
       start: startIso,
@@ -130,6 +136,7 @@ const mapAgentEvents = (rawEvents: AgentRawEvent[], finalUrl: string): Extracted
       location,
       url: link,
       source,
+      description,
       date_status: 'tbd',
       evidence: undefined,
       evidence_context: undefined,
@@ -253,6 +260,19 @@ const stripHtml = (snippet: string): string =>
     .replace(/&nbsp;/gi, ' ');
 
 const collapseWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+/** Wrap plain text as minimal HTML so strict extractors (which use body text) can run on it. Escapes HTML to avoid injecting tags. */
+const wrapTextAsHtml = (text: string): string => {
+  if (!text || !text.trim()) return '<html><body></body></html>';
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return `<html><body>${escaped}</body></html>`;
+};
+
+const sanitizeEvidenceText = (text: string, maxLen = 160): string =>
+  collapseWhitespace(text).slice(0, maxLen);
 
 const normalizeLocationText = (value: string): string | undefined => {
   if (!value) return undefined;
@@ -1084,27 +1104,49 @@ const verifyWithContext = (
 
   const context = getContextSnippet(html, event.title, 3000, expectedYear, keywords);  // Increased from 1800 to 3000
   if (!context) {
-    // No context found - verify location against full HTML if it exists
+    // No HTML context: do not confirm dates/location without evidence. Use description as evidence when present.
     let verifiedLocationStatus = event.location_status ?? 'tbd';
     if (event.location && event.location_status === 'confirmed') {
       const locationLower = event.location.toLowerCase().trim();
       const htmlLower = html.toLowerCase();
       if (!htmlLower.includes(locationLower)) {
-        // LLM location not found in HTML - mark as TBD
         verifiedLocationStatus = 'tbd';
       }
     } else if (!event.location) {
       verifiedLocationStatus = 'tbd';
     }
 
-    return {
+    const noContextResult: ExtractedEvent = {
       ...event,
-      date_status: event.start ? event.date_status ?? 'confirmed' : 'tbd',
+      date_status: 'tbd',
       location_status: verifiedLocationStatus,
       location: verifiedLocationStatus === 'tbd' ? undefined : event.location,
       location_evidence: verifiedLocationStatus === 'tbd' ? undefined : event.location_evidence,
       location_evidence_context: verifiedLocationStatus === 'tbd' ? undefined : event.location_evidence_context,
     };
+
+    if (event.description?.trim()) {
+      const descHtml = wrapTextAsHtml(event.description);
+      const strictDates = extractStrictDates(descHtml);
+      if (strictDates.date_status === 'confirmed' && strictDates.start) {
+        noContextResult.start = strictDates.start;
+        noContextResult.end = strictDates.end ?? strictDates.start;
+        noContextResult.date_status = 'confirmed';
+        noContextResult.evidence = strictDates.evidence ?? sanitizeEvidenceText(event.description);
+        noContextResult.evidence_context = 'description';
+      }
+      if (noContextResult.location_status === 'tbd') {
+        const strictLoc = extractStrictLocation(descHtml, event.url);
+        if (strictLoc.location_status === 'confirmed' && strictLoc.location) {
+          noContextResult.location = strictLoc.location;
+          noContextResult.location_status = 'confirmed';
+          noContextResult.location_evidence = strictLoc.location_evidence ?? sanitizeEvidenceText(event.description);
+          noContextResult.location_evidence_context = 'description';
+        }
+      }
+    }
+
+    return noContextResult;
   }
 
   if (process.env.DEBUG_EXTRACTOR === '1') {
@@ -1132,7 +1174,8 @@ const verifyWithContext = (
   const { plain, titleIndex, snippetHtml } = context;
   // eslint-disable-next-line no-console
   console.log('[extractor] Processing context, event.location:', event.location);
-  let dateInfo = findBestDate(plain, titleIndex, event.start);
+  let dateInfo: { startIso: string; endIso: string; evidence?: string } | null = findBestDate(plain, titleIndex, event.start);
+  let dateInfoEvidenceContext: string = 'visible-text';
 
   if (snippetHtml) {
     const strict = extractStrictDates(snippetHtml);
@@ -1142,6 +1185,18 @@ const verifyWithContext = (
         endIso: strict.end ?? strict.start,
         evidence: strict.evidence ?? collapseWhitespace(stripHtml(snippetHtml)).slice(0, 120),
       };
+    }
+  }
+
+  if (!dateInfo && event.description?.trim()) {
+    const strictFromDesc = extractStrictDates(wrapTextAsHtml(event.description));
+    if (strictFromDesc.date_status === 'confirmed' && strictFromDesc.start) {
+      dateInfo = {
+        startIso: strictFromDesc.start,
+        endIso: strictFromDesc.end ?? strictFromDesc.start,
+        evidence: strictFromDesc.evidence ?? sanitizeEvidenceText(event.description),
+      };
+      dateInfoEvidenceContext = 'description';
     }
   }
 
@@ -1194,6 +1249,18 @@ const verifyWithContext = (
           location_evidence_context: 'visible-text',
         };
       }
+    }
+  }
+
+  if (locationInfo.location_status === 'tbd' && event.description?.trim()) {
+    const strictLocFromDesc = extractStrictLocation(wrapTextAsHtml(event.description), event.url);
+    if (strictLocFromDesc.location_status === 'confirmed' && strictLocFromDesc.location) {
+      locationInfo = {
+        location: strictLocFromDesc.location,
+        location_status: 'confirmed',
+        location_evidence: strictLocFromDesc.location_evidence ?? sanitizeEvidenceText(event.description),
+        location_evidence_context: 'description',
+      };
     }
   }
 
@@ -1351,14 +1418,14 @@ const verifyWithContext = (
       next.start = dateInfo.startIso;
       next.end = event.end; // Keep LLM's multi-day end date
       next.evidence = `${dateInfo.evidence} (multi-day event)`;
-      next.evidence_context = 'visible-text';
+      next.evidence_context = dateInfoEvidenceContext;
       next.date_status = 'confirmed';
     } else {
       // Normal case: use regex dates
       next.start = dateInfo.startIso;
       next.end = dateInfo.endIso;
       next.evidence = dateInfo.evidence;
-      next.evidence_context = 'visible-text';
+      next.evidence_context = dateInfoEvidenceContext;
       next.date_status = 'confirmed';
     }
   } else if (!useRefinedSnippet) {

@@ -60,6 +60,29 @@ const CONTACT_VISIBILITY_OPTIONS = [
   { id: 'PUBLIC', label: 'Public (visible on my profile)' },
 ];
 
+function StatusBanners({
+  success,
+  error,
+}: {
+  success: string;
+  error: string;
+}) {
+  return (
+    <>
+      {success && (
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-6">
+          <p className="text-green-800 dark:text-green-200">{success}</p>
+        </div>
+      )}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
+          <p className="text-red-800 dark:text-red-200">{error}</p>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function SpeakerProfilePage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -327,17 +350,7 @@ export default function SpeakerProfilePage() {
           voices and fresh perspectives.
         </p>
 
-        {success && (
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-6">
-            <p className="text-green-800 dark:text-green-200">{success}</p>
-          </div>
-        )}
-
-        {error && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
-            <p className="text-red-800 dark:text-red-200">{error}</p>
-          </div>
-        )}
+        <StatusBanners success={success} error={error} />
 
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
           <form onSubmit={handleSubmit} className="space-y-8">
@@ -893,6 +906,7 @@ export default function SpeakerProfilePage() {
                   Cancel
                 </Link>
               </div>
+              <StatusBanners success={success} error={error} />
             </div>
           </form>
         </div>

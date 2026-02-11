@@ -843,31 +843,14 @@ function SubscriptionsPageContent() {
                   <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
                     Full Calendar Feed URL:
                   </h4>
-                  <div className="flex gap-2 mb-3">
+                  <div className="mb-3">
                     <input
                       type="text"
                       value={fullFeedUrl}
                       readOnly
-                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
                     />
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(fullFeedUrl);
-                        alert('Feed URL copied to clipboard!');
-                      }}
-                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
-                    >
-                      Copy
-                    </button>
                   </div>
-                  <a
-                    href={buildGoogleCalendarSubscribeUrl(fullFeedUrl)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm"
-                  >
-                    📆 Subscribe in Google Calendar
-                  </a>
                 </div>
               </div>
             )}
@@ -944,14 +927,6 @@ function SubscriptionsPageContent() {
                       Copy
                     </button>
                   </div>
-                  <a
-                    href={buildGoogleCalendarSubscribeUrl(customFeedUrl)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center w-full mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold text-sm"
-                  >
-                    📆 Subscribe in Google Calendar
-                  </a>
                 </div>
               </div>
             )}

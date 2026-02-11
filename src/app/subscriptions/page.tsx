@@ -37,7 +37,18 @@ interface EventFollow {
   };
 }
 
-export default function SubscriptionsPage() {
+function SubscriptionsPageFallback() {
+  return (
+    <div className="container mx-auto px-4 py-16">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">My Subscriptions</h1>
+        <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+      </div>
+    </div>
+  );
+}
+
+function SubscriptionsPageContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1082,3 +1093,10 @@ export default function SubscriptionsPage() {
   );
 }
 
+export default function SubscriptionsPage() {
+  return (
+    <Suspense fallback={<SubscriptionsPageFallback />}>
+      <SubscriptionsPageContent />
+    </Suspense>
+  );
+}

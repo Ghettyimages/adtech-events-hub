@@ -43,6 +43,24 @@ interface EventFormData {
   city?: string;
 }
 
+interface AdminStats {
+  fullCalendarSubscribers: number;
+  googleCalendarConnected: number;
+  customModeUsers: number;
+  totalEventFollows: number;
+  totalUsers: number;
+}
+
+interface AdminTopEvent {
+  id: string;
+  title: string;
+  start: string;
+  source: string | null;
+  url: string | null;
+  explicitFollows: number;
+  totalReach: number;
+}
+
 export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -52,7 +70,10 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [eventViewMode, setEventViewMode] = useState<'pending' | 'published'>('pending');
-  const [adminTab, setAdminTab] = useState<'events' | 'tags'>('events');
+  const [adminTab, setAdminTab] = useState<'events' | 'tags' | 'stats'>('events');
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [topEvents, setTopEvents] = useState<AdminTopEvent[]>([]);
+  const [statsLoading, setStatsLoading] = useState(false);
   
   // URL scraping state
   const [scrapeUrl, setScrapeUrl] = useState('');
@@ -123,6 +144,12 @@ export default function AdminPage() {
       fetchTags();
     }
   }, [adminTab, sortBy]);
+
+  useEffect(() => {
+    if (adminTab === 'stats') {
+      fetchStatsData();
+    }
+  }, [adminTab]);
 
   const fetchTags = async () => {
     setTagsLoading(true);
@@ -262,6 +289,74 @@ export default function AdminPage() {
       setError(null);
     }, 5000);
   };
+
+  const formatNumber = (value?: number) =>
+    typeof value === 'number' ? value.toLocaleString() : '—';
+
+  const fetchStatsData = async () => {
+    setStatsLoading(true);
+    try {
+      const [statsRes, topEventsRes] = await Promise.all([
+        fetch('/api/admin/stats'),
+        fetch('/api/admin/top-events'),
+      ]);
+
+      if (!statsRes.ok) {
+        const error = await statsRes.json();
+        throw new Error(error.error || 'Failed to fetch stats');
+      }
+
+      if (!topEventsRes.ok) {
+        const error = await topEventsRes.json();
+        throw new Error(error.error || 'Failed to fetch top events');
+      }
+
+      const statsData = (await statsRes.json()) as AdminStats;
+      const topEventsData = (await topEventsRes.json()) as {
+        topEvents: AdminTopEvent[];
+      };
+
+      setStats(statsData);
+      setTopEvents(topEventsData.topEvents || []);
+    } catch (err: any) {
+      setFeedback('error', err.message || 'Failed to fetch stats');
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  const metricCards = [
+    {
+      label: 'Total Users',
+      value: formatNumber(stats?.totalUsers),
+      description: 'Registered accounts',
+      icon: '👥',
+    },
+    {
+      label: 'Full Calendar Subscribers',
+      value: formatNumber(stats?.fullCalendarSubscribers),
+      description: 'Active full-feed subscriptions',
+      icon: '🗓️',
+    },
+    {
+      label: 'Google Calendar Connected',
+      value: formatNumber(stats?.googleCalendarConnected),
+      description: 'OAuth sync enabled',
+      icon: '🔗',
+    },
+    {
+      label: 'Custom Mode Users',
+      value: formatNumber(stats?.customModeUsers),
+      description: 'Syncing followed events only',
+      icon: '🎯',
+    },
+    {
+      label: 'Total Event Follows',
+      value: formatNumber(stats?.totalEventFollows),
+      description: 'Individual follow actions',
+      icon: '⭐',
+    },
+  ];
 
   const fetchPendingEvents = async () => {
     try {
@@ -1165,6 +1260,16 @@ export default function AdminPage() {
           >
             🏷️ Tags
           </button>
+          <button
+            onClick={() => setAdminTab('stats')}
+            className={`rounded-md px-4 py-2 transition ${
+              adminTab === 'stats'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+            }`}
+          >
+            📊 Stats
+          </button>
         </div>
       </div>
 
@@ -1527,6 +1632,128 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Stats Tab Content */}
+      {adminTab === 'stats' && (
+        <div className="space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">📊 Stats Dashboard</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Live snapshot of subscriber growth and event engagement.
+              </p>
+            </div>
+            <button
+              onClick={fetchStatsData}
+              disabled={statsLoading}
+              className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                statsLoading
+                  ? 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              {statsLoading ? 'Refreshing…' : '↻ Refresh'}
+            </button>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {metricCards.map((card) => (
+              <div
+                key={card.label}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow"
+              >
+                <div className="flex items-center gap-2 text-sm font-semibold text-gray-500 dark:text-gray-400">
+                  <span>{card.icon}</span>
+                  <span>{card.label}</span>
+                </div>
+                <div className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">
+                  {statsLoading && !stats ? (
+                    <span className="text-gray-400 animate-pulse">…</span>
+                  ) : (
+                    card.value
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{card.description}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-gray-200 dark:border-gray-700 px-6 py-4 gap-3">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Top Followed Events</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Explicit followers plus total reach via full-calendar subscribers.
+                </p>
+              </div>
+            </div>
+            {statsLoading && topEvents.length === 0 ? (
+              <div className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">Loading stats…</div>
+            ) : topEvents.length === 0 ? (
+              <div className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                No follower data yet. Encourage users to follow events to populate this table.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Event
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Date
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Source
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Explicit Follows
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                        Total Reach
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {topEvents.map((event) => (
+                      <tr key={event.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/60">
+                        <td className="px-6 py-4 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          <div className="flex flex-col">
+                            <span>{event.title}</span>
+                            {event.url && (
+                              <a
+                                href={event.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                              >
+                                View event ↗
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                          {formatEventDate(event.start, false)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                          {event.source || '—'}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-semibold text-right text-gray-900 dark:text-gray-100">
+                          {event.explicitFollows.toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-semibold text-right text-gray-900 dark:text-gray-100">
+                          {event.totalReach.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

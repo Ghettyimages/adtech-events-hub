@@ -1,8 +1,8 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
+import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { buildGoogleCalendarSubscribeUrl } from '@/lib/events';
+import { useState } from 'react';
 
 interface HomePageActionsProps {
   siteUrl: string;
@@ -11,20 +11,40 @@ interface HomePageActionsProps {
 export default function HomePageActions({ siteUrl }: HomePageActionsProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const feedUrl = `${siteUrl}/api/feed`;
-  const subscribeUrl = buildGoogleCalendarSubscribeUrl(feedUrl);
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const handleSubscribeGoogleCalendar = async () => {
+    setIsConnecting(true);
+    try {
+      const res = await fetch('/api/mine/gcal/status');
+      if (!res.ok) {
+        await signIn('google', { callbackUrl: '/subscriptions?gcal=connected', redirect: true });
+        return;
+      }
+      const data = await res.json();
+      if (!data.hasGoogleAccount) {
+        await signIn('google', { callbackUrl: '/subscriptions?gcal=connected', redirect: true });
+        return;
+      }
+      router.push('/subscriptions');
+    } catch {
+      await signIn('google', { callbackUrl: '/subscriptions?gcal=connected', redirect: true });
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
   if (status === 'authenticated' && session) {
     return (
       <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-        <a
-          href={subscribeUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center px-6 py-3 bg-tmc-navy text-white rounded-lg hover:bg-tmc-blue transition font-semibold"
+        <button
+          type="button"
+          onClick={handleSubscribeGoogleCalendar}
+          disabled={isConnecting}
+          className="inline-flex items-center px-6 py-3 bg-tmc-navy text-white rounded-lg hover:bg-tmc-blue transition font-semibold disabled:opacity-70 disabled:cursor-not-allowed"
         >
-          📆 Subscribe in Google Calendar
-        </a>
+          {isConnecting ? 'Connecting...' : '📆 Subscribe in Google Calendar'}
+        </button>
         <a
           href="/api/feed"
           download="adtech-events.ics"

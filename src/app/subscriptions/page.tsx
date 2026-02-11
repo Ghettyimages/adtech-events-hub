@@ -1,7 +1,7 @@
 'use client';
 
 import { signIn, useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import Link from 'next/link';
@@ -40,6 +40,8 @@ interface EventFollow {
 export default function SubscriptionsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isJustConnectedGcal = searchParams.get('gcal') === 'connected';
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [eventFollows, setEventFollows] = useState<EventFollow[]>([]);
   const [feedToken, setFeedToken] = useState<string | null>(null);
@@ -187,7 +189,7 @@ export default function SubscriptionsPage() {
 
   const handleConnectGoogleCalendar = async () => {
     // Use NextAuth's client helper (Auth.js v5 can error on direct /api/auth/signin/google navigation)
-    await signIn('google', { callbackUrl: '/subscriptions', redirect: true });
+    await signIn('google', { callbackUrl: '/subscriptions?gcal=connected', redirect: true });
   };
 
   const handleDisconnectGoogleCalendar = async () => {
@@ -326,6 +328,20 @@ export default function SubscriptionsPage() {
     } finally {
       setIsChangingMode(false);
     }
+  };
+
+  const handleFirstSyncFull = async () => {
+    if (gcalSyncStatus?.mode !== 'FULL') {
+      await handleChangeSyncMode('FULL');
+    }
+    await handleSyncNow();
+  };
+
+  const handleFirstSyncCustom = async () => {
+    if (gcalSyncStatus?.mode !== 'CUSTOM') {
+      await handleChangeSyncMode('CUSTOM');
+    }
+    await handleSyncNow();
   };
 
   const handleToggleFullSubscription = async () => {
@@ -562,6 +578,38 @@ export default function SubscriptionsPage() {
                   {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
                 </button>
               </div>
+
+              {/* Initial sync prompt: show when connected but no first sync yet */}
+              {gcalConnected && (gcalSyncStatus?.pending === true || gcalSyncStatus?.lastSyncedAt == null) && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-400 dark:border-amber-600 rounded-lg p-5">
+                  <p className="text-base font-semibold text-amber-900 dark:text-amber-200 mb-2">
+                    {isJustConnectedGcal
+                      ? 'Welcome back! Finish setup by running your first sync.'
+                      : 'Google Calendar is connected. To start tracking events, run your first sync.'}
+                  </p>
+                  <p className="text-sm text-amber-800 dark:text-amber-300 mb-4">
+                    Choose one option below to sync events to your calendar.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={handleFirstSyncFull}
+                      disabled={isSyncing || isChangingMode}
+                      className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSyncing || isChangingMode ? 'Syncing...' : 'Sync FULL (all events)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleFirstSyncCustom}
+                      disabled={isSyncing || isChangingMode}
+                      className="px-5 py-2.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSyncing || isChangingMode ? 'Syncing...' : 'Sync CUSTOM (subscribed only)'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Sync Mode Selection */}
               <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">

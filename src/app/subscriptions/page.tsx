@@ -2,7 +2,7 @@
 
 import { signIn, useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import CalendarInstructions from '@/components/CalendarInstructions';

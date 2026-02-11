@@ -45,13 +45,6 @@ export default function HomePageActions({ siteUrl }: HomePageActionsProps) {
         >
           {isConnecting ? 'Connecting...' : '📆 Subscribe in Google Calendar'}
         </button>
-        <a
-          href="/api/feed"
-          download="adtech-events.ics"
-          className="inline-flex items-center px-6 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition font-semibold"
-        >
-          ⬇️ Download iCal Feed
-        </a>
       </div>
     );
   }

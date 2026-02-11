@@ -181,17 +181,21 @@ Trigger Next.js revalidation to refresh the calendar.
 
 ## 📆 Subscribe to Calendar
 
-### Google Calendar
+### Google Calendar (Recommended)
 
-1. Click the "Subscribe in Google Calendar" button on the home page, or
-2. Manually add the feed URL:
-   - Go to Google Calendar → Settings → Add calendar → From URL
-   - Enter: `webcal://your-domain.com/api/feed`
+1. Sign in and click the **Subscribe in Google Calendar** button (home page hero or `My Subscriptions`).
+2. The OAuth flow connects your Google Calendar so events can be tracked, auto-updated, and cleaned up.
+
+#### Manual feed (limited tracking)
+
+- Copy your personalized feed URL from the `My Subscriptions` page.
+- In Google Calendar: Settings → Add calendar → From URL → paste the `webcal://` link.
+- Manual feeds are client-polled and cannot be per-event tracked; use only if OAuth is unavailable.
 
 ### Apple Calendar / Outlook
 
-1. Download the `.ics` file from `/api/feed`
-2. Import into your calendar app
+1. Copy your personalized feed URL or download the `.ics` file from `/api/feed`.
+2. Import/subcribe within your calendar app (note: manual feeds are not trackable from our side).
 
 ## 🌱 Seeding Events
 

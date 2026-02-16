@@ -69,14 +69,14 @@ export default function SubscribeModal({
   const modalContent = (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[100]">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col">
-        <div className="p-6 overflow-y-auto flex-1 min-h-0">
+        <div className="p-4 md:p-6 overflow-y-auto flex-1 min-h-0">
           {!showSuccess ? (
             <>
               <div className="flex justify-between items-start mb-4">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h2>
+                <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white pr-2">{title}</h2>
                 <button
                   onClick={handleClose}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl p-3 -m-3 min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
                   aria-label="Close"
                 >
                   ×
@@ -234,7 +234,7 @@ export default function SubscribeModal({
                   </Link>
                   <button
                     onClick={handleClose}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition font-semibold"
+                    className="w-full bg-blue-600 text-white py-3 px-4 min-h-[44px] rounded-lg hover:bg-blue-700 transition font-semibold"
                   >
                     Done
                   </button>

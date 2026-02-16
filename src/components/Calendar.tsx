@@ -522,10 +522,10 @@ export default function Calendar() {
   return (
     <div className="space-y-6">
         {/* Filter Button and Active Filters (always visible) */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
           <button
             onClick={handleFiltersToggle}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 min-h-[44px] text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tmc-cyan dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
           >
             <svg
               className={`h-5 w-5 transition-transform ${showFilters ? 'rotate-180' : ''}`}
@@ -545,7 +545,7 @@ export default function Calendar() {
           {hasActiveFilters && (
             <button
               onClick={removeAllFilters}
-              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 min-h-[44px] flex items-center"
             >
               Clear all
             </button>
@@ -567,7 +567,7 @@ export default function Calendar() {
                   Tag: {displayName}
                   <button
                     onClick={() => removeTagChip(tagName)}
-                    className="hover:text-blue-600 dark:hover:text-blue-300 ml-1"
+                    className="hover:text-blue-600 dark:hover:text-blue-300 ml-1 p-1.5 -m-1.5 rounded"
                   >
                     ×
                   </button>
@@ -579,7 +579,7 @@ export default function Calendar() {
                 Country: {filterCountry}
                 <button
                   onClick={removeCountryChip}
-                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                  className="hover:text-blue-600 dark:hover:text-blue-300 p-1.5 -m-1.5 rounded"
                 >
                   ×
                 </button>
@@ -590,7 +590,7 @@ export default function Calendar() {
                 Region: {filterRegion}
                 <button
                   onClick={removeRegionChip}
-                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                  className="hover:text-blue-600 dark:hover:text-blue-300 p-1.5 -m-1.5 rounded"
                 >
                   ×
                 </button>
@@ -601,7 +601,7 @@ export default function Calendar() {
                 City: {filterCity}
                 <button
                   onClick={removeCityChip}
-                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                  className="hover:text-blue-600 dark:hover:text-blue-300 p-1.5 -m-1.5 rounded"
                 >
                   ×
                 </button>
@@ -612,7 +612,7 @@ export default function Calendar() {
                 Source: {filterSource}
                 <button
                   onClick={removeSourceChip}
-                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                  className="hover:text-blue-600 dark:hover:text-blue-300 p-1.5 -m-1.5 rounded"
                 >
                   ×
                 </button>
@@ -623,7 +623,7 @@ export default function Calendar() {
                 Sort: {sortOption}
                 <button
                   onClick={removeSortChip}
-                  className="hover:text-blue-600 dark:hover:text-blue-300"
+                  className="hover:text-blue-600 dark:hover:text-blue-300 p-1.5 -m-1.5 rounded"
                 >
                   ×
                 </button>
@@ -770,18 +770,18 @@ export default function Calendar() {
             </select>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-col md:flex-row flex-wrap gap-2">
             <button
               type="button"
               onClick={applyFiltersFromDraft}
-              className="inline-flex items-center justify-center rounded-lg bg-tmc-navy px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-tmc-cyan focus:ring-offset-2 dark:bg-tmc-navy"
+              className="inline-flex items-center justify-center rounded-lg bg-tmc-navy px-4 py-2 min-h-[44px] text-sm font-semibold text-white shadow-sm transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-tmc-cyan focus:ring-offset-2 dark:bg-tmc-navy w-full md:w-auto"
             >
               Apply filters
             </button>
             <button
               type="button"
               onClick={removeAllFilters}
-              className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tmc-cyan focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 min-h-[44px] text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tmc-cyan focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 w-full md:w-auto"
             >
               Remove all filters
             </button>
@@ -789,12 +789,12 @@ export default function Calendar() {
           </div>
         )}
 
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 text-sm font-medium shadow-sm dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="inline-flex w-full md:w-auto rounded-lg border border-gray-200 bg-white p-1 text-sm font-medium shadow-sm dark:border-gray-700 dark:bg-gray-900">
             <button
               type="button"
               onClick={() => setViewMode('calendar')}
-              className={`rounded-md px-4 py-2 transition ${
+              className={`rounded-md px-4 py-2 min-h-[44px] flex-1 md:flex-initial transition ${
                 viewMode === 'calendar'
                   ? 'bg-tmc-navy text-white shadow'
                   : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
@@ -819,7 +819,7 @@ export default function Calendar() {
             type="button"
             onClick={handleExportList}
             disabled={!hasExportableEvents}
-            className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tmc-navy ${
+            className={`inline-flex items-center justify-center rounded-lg px-4 py-2 min-h-[44px] w-full md:w-auto text-sm font-semibold shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tmc-navy ${
               hasExportableEvents
                 ? 'bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200'
                 : 'cursor-not-allowed bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-500'

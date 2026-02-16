@@ -95,3 +95,15 @@ body {
 .fc-event-main {
   border: none !important;
 }
+
+/* FullCalendar mobile toolbar - stack vertically on small screens */
+@media (max-width: 767px) {
+  .fc-toolbar.fc-header-toolbar {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .fc-toolbar-chunk {
+    width: 100%;
+    justify-content: center;
+  }
+}

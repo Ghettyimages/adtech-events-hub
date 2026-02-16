@@ -53,7 +53,7 @@ export default function AddToCalendarLink({ event }: AddToCalendarLinkProps) {
     return (
       <button
         onClick={() => router.push(`/login?callbackUrl=${encodeURIComponent(window.location.href)}`)}
-        className="w-full bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 transition font-semibold"
+        className="w-full bg-gray-600 text-white py-3 px-4 min-h-[44px] rounded-lg hover:bg-gray-700 transition font-semibold"
       >
         Sign in to Add to Calendar
       </button>
@@ -74,7 +74,7 @@ export default function AddToCalendarLink({ event }: AddToCalendarLinkProps) {
         </a>
         <button
           onClick={downloadICS}
-          className="inline-flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
+          className="inline-flex items-center justify-center px-4 py-3 min-h-[44px] w-full sm:w-auto bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
         >
           ⬇️ Download .ics
         </button>

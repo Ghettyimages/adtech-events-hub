@@ -123,10 +123,10 @@ export default function EventCard({ event, onClose }: EventCardProps) {
         className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-2xl w-full min-h-[500px] max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-6">
+        <div className="p-4 md:p-6">
           <div className="flex justify-between items-start mb-4">
-            <div className="flex items-center gap-3 flex-1">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{event.title}</h2>
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">{event.title}</h2>
               {'subscribers' in event && typeof event.subscribers === 'number' && event.subscribers > 0 && (
                 <span className="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                   👥 {event.subscribers}
@@ -135,7 +135,7 @@ export default function EventCard({ event, onClose }: EventCardProps) {
             </div>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl p-3 -m-3 min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
               aria-label="Close"
             >
               ×
@@ -257,7 +257,7 @@ export default function EventCard({ event, onClose }: EventCardProps) {
                   <button
                     onClick={() => setShowDropdown(!showDropdown)}
                     disabled={isLoading}
-                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-h-[44px]"
                   >
                     <span>Subscribe</span>
                     <span className="text-sm">▼</span>
@@ -275,7 +275,7 @@ export default function EventCard({ event, onClose }: EventCardProps) {
                           <button
                             onClick={handleUnfollow}
                             disabled={isLoading}
-                            className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                            className="w-full text-left px-4 py-3 min-h-[44px] text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                           >
                             ✓ Unfollow this event
                           </button>
@@ -297,7 +297,7 @@ export default function EventCard({ event, onClose }: EventCardProps) {
                             setShowFullModal(true);
                           }}
                           disabled={isLoading}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                          className="w-full text-left px-4 py-3 min-h-[44px] text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                         >
                           {fullSubscriptionActive ? '✓ ' : ''}Subscribe to Full Media Calendar
                         </button>

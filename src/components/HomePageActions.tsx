@@ -41,7 +41,7 @@ export default function HomePageActions({ siteUrl }: HomePageActionsProps) {
           type="button"
           onClick={handleSubscribeGoogleCalendar}
           disabled={isConnecting}
-          className="inline-flex items-center px-6 py-3 bg-tmc-navy text-white rounded-lg hover:bg-tmc-blue transition font-semibold disabled:opacity-70 disabled:cursor-not-allowed"
+          className="inline-flex items-center justify-center px-6 py-3 min-h-[44px] w-full sm:w-auto bg-tmc-navy text-white rounded-lg hover:bg-tmc-blue transition font-semibold disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {isConnecting ? 'Connecting...' : '📆 Subscribe in Google Calendar'}
         </button>
@@ -52,14 +52,14 @@ export default function HomePageActions({ siteUrl }: HomePageActionsProps) {
   if (status === 'unauthenticated') {
     return (
       <div className="flex flex-col gap-4 justify-center items-center">
-        <div className="bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800 rounded-lg p-4 max-w-2xl">
+        <div className="bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800 rounded-lg p-3 md:p-4 max-w-2xl w-full">
           <p className="text-sm text-tmc-navy dark:text-cyan-200 text-center mb-4">
             <strong>Login to subscribe to The Media Calendar, add events to your calendar and customize your event feeds.</strong>
           </p>
           <div className="flex justify-center">
             <button
               onClick={() => router.push('/login')}
-              className="inline-flex items-center px-6 py-3 bg-tmc-navy text-white rounded-lg hover:bg-tmc-blue transition font-semibold"
+              className="inline-flex items-center justify-center px-6 py-3 min-h-[44px] w-full sm:w-auto bg-tmc-navy text-white rounded-lg hover:bg-tmc-blue transition font-semibold"
             >
               Sign in
             </button>

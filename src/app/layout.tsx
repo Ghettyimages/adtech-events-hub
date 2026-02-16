@@ -1,9 +1,15 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import Link from 'next/link';
-import Image from 'next/image';
 import SessionProvider from '@/components/SessionProvider';
-import AuthNav from '@/components/AuthNav';
+import MobileNav from '@/components/MobileNav';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: '#0B2A66',
+};
 
 export const metadata: Metadata = {
   title: 'The Media Calendar',
@@ -31,33 +37,7 @@ export default function RootLayout({
         <SessionProvider>
           <header className="bg-tmc-gradient text-white shadow-lg">
             <div className="container mx-auto px-4 py-4">
-              <nav className="flex items-center justify-between">
-                <Link href="/" className="flex items-center gap-2 text-2xl font-bold hover:opacity-90 transition">
-                  <Image
-                    src="/logo.png"
-                    alt="TMC Logo"
-                    width={80}
-                    height={80}
-                    className="rounded"
-                  />
-                  The Media Calendar
-                </Link>
-                <div className="flex gap-4 items-center">
-                  <Link
-                    href="/submit"
-                    className="bg-white text-tmc-navy px-4 py-2 rounded-lg font-semibold hover:bg-slate-50 transition"
-                  >
-                    Submit Event
-                  </Link>
-                  <Link
-                    href="/admin"
-                    className="text-white hover:underline text-sm"
-                  >
-                    Admin
-                  </Link>
-                  <AuthNav />
-                </div>
-              </nav>
+              <MobileNav />
             </div>
           </header>
           <main className="min-h-screen">{children}</main>
@@ -68,10 +48,10 @@ export default function RootLayout({
                   The Media Calendar &copy; {new Date().getFullYear()} | Built with Next.js, Prisma &amp; FullCalendar
                 </p>
                 <div className="flex gap-4 text-sm">
-                  <Link href="/terms" className="hover:underline">
+                  <Link href="/terms" className="hover:underline py-2 min-h-[44px] flex items-center justify-center">
                     Terms
                   </Link>
-                  <Link href="/privacy" className="hover:underline">
+                  <Link href="/privacy" className="hover:underline py-2 min-h-[44px] flex items-center justify-center">
                     Privacy
                   </Link>
                 </div>

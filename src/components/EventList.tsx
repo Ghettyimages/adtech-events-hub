@@ -34,7 +34,35 @@ export default function EventList({ events, onSelect, emptyStateMessage }: Event
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
-      <div className="overflow-x-auto">
+      {/* Mobile: card layout */}
+      <div className="block md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+        {events.map((event) => (
+          <button
+            key={event.id}
+            type="button"
+            onClick={() => onSelect(event)}
+            className="w-full text-left p-4 min-h-[44px] rounded-lg border-0 border-b border-gray-200 dark:border-gray-700 last:border-b-0 active:bg-gray-50 dark:active:bg-gray-900/60 hover:bg-gray-50 dark:hover:bg-gray-900/60 transition"
+          >
+            <div className="flex flex-col gap-2">
+              <span className="font-medium text-gray-900 dark:text-gray-100">{event.title}</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {formatDate(event.start, !event.timezone, false)}
+                {event.end && ` – ${formatDate(event.end, !event.timezone, true)}`}
+              </span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                {(event.city || event.region || event.country)
+                  ? [event.city, event.region, event.country].filter(Boolean).join(', ')
+                  : event.location || 'Online'}
+              </span>
+              <span className="text-sm font-semibold text-purple-600 dark:text-purple-400 mt-1">
+                View details
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+      {/* Desktop: table layout */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>

@@ -110,22 +110,19 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Auto-sync to Google Calendar if user is in CUSTOM mode
+    // Auto-sync to Google Calendar when connected (FULL or CUSTOM mode)
     let gcalSynced = false;
     const dbUser = await prisma.user.findUnique({
       where: { id: session.user.id },
       select: {
         feedToken: true,
         gcalSyncEnabled: true,
-        gcalSyncMode: true,
         gcalCalendarId: true,
       },
     });
 
-    // Check if Google Calendar is connected and in CUSTOM mode
     if (
       dbUser?.gcalSyncEnabled &&
-      dbUser?.gcalSyncMode === 'CUSTOM' &&
       dbUser?.gcalCalendarId &&
       event.status === 'PUBLISHED'
     ) {

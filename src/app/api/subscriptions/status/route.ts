@@ -36,16 +36,29 @@ export async function GET(request: NextRequest) {
       isFollowing = !!follow;
     }
 
-    // Get user's feedToken
+    // Get user's feedToken and Google Calendar status
     const userWithToken = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { feedToken: true },
+      select: { feedToken: true, gcalSyncEnabled: true, gcalCalendarId: true },
     });
+
+    const googleAccount = await prisma.account.findFirst({
+      where: {
+        userId: session.user.id,
+        provider: 'google',
+      },
+    });
+
+    const gcalConnected =
+      !!googleAccount &&
+      !!userWithToken?.gcalSyncEnabled &&
+      !!userWithToken?.gcalCalendarId;
 
     return NextResponse.json({
       fullSubscriptionActive: !!fullSubscription,
       isFollowing,
       feedToken: userWithToken?.feedToken || null,
+      gcalConnected,
     });
   } catch (error) {
     console.error('Error checking subscription status:', error);

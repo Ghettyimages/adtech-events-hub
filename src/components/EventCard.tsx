@@ -3,7 +3,7 @@
 import { Event } from '@prisma/client';
 import { format } from 'date-fns';
 import { useSession } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import AddToCalendarLink from './AddToCalendarLink';
 import SubscribeModal from './SubscribeModal';
@@ -20,17 +20,30 @@ export default function EventCard({ event, onClose }: EventCardProps) {
   const [isFollowing, setIsFollowing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [fullSubscriptionActive, setFullSubscriptionActive] = useState(false);
+  const [gcalConnected, setGcalConnected] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showFollowModal, setShowFollowModal] = useState(false);
   const [showFullModal, setShowFullModal] = useState(false);
   const [feedToken, setFeedToken] = useState<string | null>(null);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (status === 'authenticated' && session) {
       checkSubscriptionStatus();
     }
   }, [status, session, event.id]);
+
+  useEffect(() => {
+    if (!showDropdown) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDropdown]);
 
   const checkSubscriptionStatus = async () => {
     try {
@@ -41,6 +54,7 @@ export default function EventCard({ event, onClose }: EventCardProps) {
         setIsFollowing(data.isFollowing || false);
         setFullSubscriptionActive(data.fullSubscriptionActive || false);
         setFeedToken(data.feedToken || null);
+        setGcalConnected(data.gcalConnected || false);
       }
     } catch (error) {
       console.error('Error checking subscription status:', error);
@@ -250,10 +264,16 @@ export default function EventCard({ event, onClose }: EventCardProps) {
             )}
 
             <div className="pt-4 border-t space-y-3">
-              <AddToCalendarLink event={event} />
+              <AddToCalendarLink
+                event={event}
+                isFollowing={isFollowing}
+                fullSubscriptionActive={fullSubscriptionActive}
+                gcalConnected={gcalConnected}
+                onFollowSuccess={checkSubscriptionStatus}
+              />
               
               {status === 'authenticated' && (
-                <div className="relative">
+                <div className="relative" ref={dropdownRef}>
                   <button
                     onClick={() => setShowDropdown(!showDropdown)}
                     disabled={isLoading}
@@ -265,10 +285,6 @@ export default function EventCard({ event, onClose }: EventCardProps) {
                   
                   {showDropdown && (
                     <>
-                      <div 
-                        className="fixed inset-0 z-[5]" 
-                        onClick={() => setShowDropdown(false)}
-                      />
                       <div className="absolute z-10 mt-2 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg">
                       <div className="py-1">
                         {isFollowing ? (

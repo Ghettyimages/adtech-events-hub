@@ -96,6 +96,9 @@ function SubscriptionsPageContent() {
     followCount: number;
   } | null>(null);
 
+  // Collapse state for Alternative: Manual Feed Subscription section
+  const [alternativeExpanded, setAlternativeExpanded] = useState(false);
+
   useEffect(() => {
     console.log('🔍 useEffect triggered - status:', status, 'session:', !!session);
     if (status === 'unauthenticated') {
@@ -114,6 +117,49 @@ function SubscriptionsPageContent() {
   useEffect(() => {
     console.log('🔍 State changed - gcalConnected:', gcalConnected);
   }, [gcalConnected]);
+
+  // After connecting from "Add to Google Calendar" with fromEvent, auto-follow the event
+  useEffect(() => {
+    const fromEvent = searchParams.get('fromEvent');
+    if (!fromEvent || !gcalConnected) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/follow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ eventId: fromEvent, acceptTerms: true }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok) {
+          setSyncResult({
+            success: true,
+            message: 'Event added to your calendar.',
+          });
+          fetchSubscriptions(); // refresh event follows list
+        } else {
+          setSyncResult({
+            success: false,
+            message: data.error || 'Failed to add event to calendar.',
+          });
+        }
+        router.replace('/subscriptions', { scroll: false });
+      } catch (err) {
+        if (!cancelled) {
+          setSyncResult({
+            success: false,
+            message: 'An error occurred. Please try again.',
+          });
+          router.replace('/subscriptions', { scroll: false });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gcalConnected, searchParams, router]);
 
   const fetchSubscriptions = async () => {
     try {
@@ -482,6 +528,8 @@ function SubscriptionsPageContent() {
     return null;
   }
 
+  const isAdmin = (session.user as { isAdmin?: boolean })?.isAdmin ?? false;
+
   // Debug: Log render state
   console.log('🔍 Rendering subscriptions page - gcalConnected:', gcalConnected);
 
@@ -520,53 +568,51 @@ function SubscriptionsPageContent() {
             </ul>
           </div>
 
-          {/* Debug Info - Keep for debugging */}
-          <div className="mb-4 p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-400 rounded text-xs">
-            <strong>DEBUG:</strong> gcalConnected={String(gcalConnected)}, 
-            gcalSyncEnabled={String(gcalSyncEnabled)}, 
-            hasStatus={String(!!gcalSyncStatus)}
-          </div>
+          {isAdmin && (
+            <>
+              {/* Debug Info - Keep for debugging */}
+              <div className="mb-4 p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-400 rounded text-xs">
+                <strong>DEBUG:</strong> gcalConnected={String(gcalConnected)}, 
+                gcalSyncEnabled={String(gcalSyncEnabled)}, 
+                hasStatus={String(!!gcalSyncStatus)}
+              </div>
 
-          {/* Test buttons that always render - Keep for debugging */}
-          <div className="mb-4 p-3 bg-blue-100 dark:bg-blue-900/20 border border-blue-400 rounded">
-            <p className="text-xs mb-2 font-semibold">TEST BUTTONS (Always Visible):</p>
-            <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={() => {
-                  console.log('Test Disconnect clicked');
-                  handleDisconnectGoogleCalendar();
-                }}
-                className="px-4 py-2 text-sm bg-red-600 text-white rounded border-2 border-red-800"
-              >
-                Test Disconnect
-              </button>
-              <button
-                onClick={() => {
-                  console.log('Test Cleanup clicked');
-                  handleCleanupPrimaryCalendar();
-                }}
-                className="px-4 py-2 text-sm bg-orange-600 text-white rounded border-2 border-orange-800"
-              >
-                Test Cleanup
-              </button>
-              <button
-                onClick={() => {
-                  console.log('Refresh status clicked');
-                  checkGoogleCalendarStatus();
-                }}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded border-2 border-blue-800"
-              >
-                Refresh Status
-              </button>
-            </div>
-          </div>
+              {/* Test buttons that always render - Keep for debugging */}
+              <div className="mb-4 p-3 bg-blue-100 dark:bg-blue-900/20 border border-blue-400 rounded">
+                <p className="text-xs mb-2 font-semibold">TEST BUTTONS (Always Visible):</p>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={() => {
+                      console.log('Test Disconnect clicked');
+                      handleDisconnectGoogleCalendar();
+                    }}
+                    className="px-4 py-2 text-sm bg-red-600 text-white rounded border-2 border-red-800"
+                  >
+                    Test Disconnect
+                  </button>
+                  <button
+                    onClick={() => {
+                      console.log('Test Cleanup clicked');
+                      handleCleanupPrimaryCalendar();
+                    }}
+                    className="px-4 py-2 text-sm bg-orange-600 text-white rounded border-2 border-orange-800"
+                  >
+                    Test Cleanup
+                  </button>
+                  <button
+                    onClick={() => {
+                      console.log('Refresh status clicked');
+                      checkGoogleCalendarStatus();
+                    }}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded border-2 border-blue-800"
+                  >
+                    Refresh Status
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
-          {(() => {
-            console.log('🔍 Render check - gcalConnected:', gcalConnected);
-            console.log('🔍 Render check - buttons should render:', gcalConnected);
-            return null;
-          })()}
-          
           {gcalConnected ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -763,19 +809,21 @@ function SubscriptionsPageContent() {
                 </button>
               </div>
 
-              <div className="pt-4 border-t-2 border-gray-300 dark:border-gray-600">
-                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                  If you previously synced events to your primary calendar, you can clean them up:
-                </p>
-                <button
-                  onClick={handleCleanupPrimaryCalendar}
-                  disabled={isCleaningUp}
-                  className="px-8 py-4 text-base font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed border-4 border-orange-800 shadow-lg w-full sm:w-auto"
-                  style={{ display: 'block', visibility: 'visible' }}
-                >
-                  {isCleaningUp ? 'Cleaning up...' : 'Remove Events from Primary Calendar'}
-                </button>
-              </div>
+              {isAdmin && (
+                <div className="pt-4 border-t-2 border-gray-300 dark:border-gray-600">
+                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                    If you previously synced events to your primary calendar, you can clean them up:
+                  </p>
+                  <button
+                    onClick={handleCleanupPrimaryCalendar}
+                    disabled={isCleaningUp}
+                    className="px-8 py-4 text-base font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed border-4 border-orange-800 shadow-lg w-full sm:w-auto"
+                    style={{ display: 'block', visibility: 'visible' }}
+                  >
+                    {isCleaningUp ? 'Cleaning up...' : 'Remove Events from Primary Calendar'}
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <button
@@ -787,15 +835,114 @@ function SubscriptionsPageContent() {
           )}
         </div>
 
-        {/* Alternative: Manual Feed Subscription Section */}
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg shadow p-6 mb-6 border border-gray-200 dark:border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-            Alternative: Manual Feed Subscription
+        {/* My Followed Events Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6 border border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+            My Followed Events ({eventFollows.length})
           </h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            For users who prefer feed subscriptions or use other calendar apps (Apple Calendar, Outlook, etc.)
-          </p>
 
+          {customFeedUrl && (
+            <div className="mb-4 space-y-4">
+              <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                  Custom Calendar Feed URL:
+                </h4>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customFeedUrl}
+                    readOnly
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(customFeedUrl);
+                      alert('Feed URL copied to clipboard!');
+                    }}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {eventFollows.length === 0 ? (
+            <p className="text-gray-600 dark:text-gray-400 text-center py-8 text-sm">
+              You haven't followed any events yet. Browse the calendar and click "Add to My Media Calendar" on events you want to follow.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {eventFollows.map((eventFollow) => (
+                <div
+                  key={eventFollow.id}
+                  className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition ${
+                    eventFollow.source === 'FILTER'
+                      ? 'border-purple-200 dark:border-purple-700 bg-purple-50/50 dark:bg-purple-900/10'
+                      : 'border-gray-200 dark:border-gray-700'
+                  }`}
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-semibold text-gray-900 dark:text-white text-sm">
+                        {eventFollow.event.title}
+                      </h4>
+                      {eventFollow.source === 'FILTER' && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                          Filter
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                      <span>
+                        {format(new Date(eventFollow.event.start), 'PP')}
+                      </span>
+                      {eventFollow.event.location && (
+                        <span className="ml-2">• {eventFollow.event.location}</span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleUnfollow(eventFollow.eventId)}
+                    disabled={unfollowingId === eventFollow.eventId}
+                    className="ml-4 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50"
+                  >
+                    {unfollowingId === eventFollow.eventId ? 'Removing...' : 'Unfollow'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Alternative: Manual Feed Subscription Section (collapsible) */}
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg shadow p-6 mb-6 border border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={() => setAlternativeExpanded(!alternativeExpanded)}
+            className="w-full flex items-center justify-between gap-3 text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-lg"
+          >
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-1">
+                Alternative: Manual Feed Subscription
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                For users who prefer feed subscriptions or use other calendar apps (Apple Calendar, Outlook, etc.)
+              </p>
+            </div>
+            <svg
+              className={`w-6 h-6 text-gray-500 dark:text-gray-400 flex-shrink-0 transition-transform ${alternativeExpanded ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {alternativeExpanded && (
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           {/* How to Add to Calendar Section */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
@@ -897,87 +1044,8 @@ function SubscriptionsPageContent() {
               </div>
             </div>
           )}
-
-          {/* Custom Subscriptions Section */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              My Followed Events ({eventFollows.length})
-            </h3>
-
-            {customFeedUrl && (
-              <div className="mb-4 space-y-4">
-                <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                    Custom Calendar Feed URL:
-                  </h4>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={customFeedUrl}
-                      readOnly
-                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono text-gray-900 dark:text-white"
-                    />
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(customFeedUrl);
-                        alert('Feed URL copied to clipboard!');
-                      }}
-                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {eventFollows.length === 0 ? (
-              <p className="text-gray-600 dark:text-gray-400 text-center py-8 text-sm">
-                You haven't followed any events yet. Browse the calendar and click "Add to My Media Calendar" on events you want to follow.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {eventFollows.map((eventFollow) => (
-                  <div
-                    key={eventFollow.id}
-                    className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition ${
-                      eventFollow.source === 'FILTER'
-                        ? 'border-purple-200 dark:border-purple-700 bg-purple-50/50 dark:bg-purple-900/10'
-                        : 'border-gray-200 dark:border-gray-700'
-                    }`}
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-semibold text-gray-900 dark:text-white text-sm">
-                          {eventFollow.event.title}
-                        </h4>
-                        {eventFollow.source === 'FILTER' && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                            Filter
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                        <span>
-                          {format(new Date(eventFollow.event.start), 'PP')}
-                        </span>
-                        {eventFollow.event.location && (
-                          <span className="ml-2">• {eventFollow.event.location}</span>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleUnfollow(eventFollow.eventId)}
-                      disabled={unfollowingId === eventFollow.eventId}
-                      className="ml-4 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50"
-                    >
-                      {unfollowingId === eventFollow.eventId ? 'Removing...' : 'Unfollow'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <div className="text-center">

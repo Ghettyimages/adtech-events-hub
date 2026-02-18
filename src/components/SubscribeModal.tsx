@@ -218,6 +218,10 @@ export default function SubscribeModal({
                       </div>
                     )}
 
+                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                      Anyone with this URL can access your feed. Treat it as confidential.
+                    </p>
+
                     <div className="mt-4">
                       <CalendarInstructions feedUrl={subscriptionType === 'full' ? fullFeedUrl || undefined : customFeedUrl || undefined} />
                     </div>

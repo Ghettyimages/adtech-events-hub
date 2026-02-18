@@ -3,10 +3,10 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy | The Media Calendar',
-  description: 'Privacy Policy for The Media Calendar (themediacalnedar.com).',
+  description: 'Privacy Policy for The Media Calendar (themediacalendar.com).',
 };
 
-const LAST_UPDATED = 'January 20, 2026';
+const LAST_UPDATED = 'February 18, 2026';
 
 export default function PrivacyPage() {
   return (
@@ -28,7 +28,7 @@ export default function PrivacyPage() {
             <p className="text-gray-700 dark:text-gray-300 mb-4">
               This Privacy Policy describes how <strong>The Media Calendar</strong> (“we”, “us”,
               “our”) collects, uses, and shares information when you use{' '}
-              <strong>themediacalnedar.com</strong> (the “Service”).
+              <strong>themediacalendar.com</strong> (the “Service”).
             </p>
           </section>
 
@@ -58,14 +58,29 @@ export default function PrivacyPage() {
                 event (e.g., title, dates, location, description, links, and source).
               </li>
               <li>
-                <strong>Calendar integration data</strong>: if you connect Google, we may process
-                Google OAuth tokens and use Google Calendar API access to create/update/delete
-                events you choose to sync.
+                <strong>Speaker profile information (optional)</strong>: If you create a speaker
+                profile for the speaker directory, we may collect display name, pronouns, company,
+                role, location (country/region/city), timezone, bio, talk formats, availability
+                preferences, contact email/phone (with visibility controls), past speaking
+                engagements, and credentials. Published profiles are visible to event organizers
+                and admins.
+              </li>
+              <li>
+                <strong>Calendar integration and Google sign-in</strong>: If you sign in with Google
+                or connect Google Calendar, we receive your Google account identity (email, name,
+                profile) and OAuth tokens. We use Google Calendar API access to create/update/delete
+                events you choose to sync. We do not use Google user data for advertising.
               </li>
               <li>
                 <strong>Usage and device data</strong>: basic log data such as IP address, browser
                 type, pages viewed, and approximate timestamps (typically collected automatically by
                 hosting/infrastructure).
+              </li>
+              <li>
+                <strong>Personal calendar feed token</strong>: When you create an account, we generate
+                a unique token used to build your personalized iCal feed URL. Anyone with this URL
+                can access your subscription feed. Treat your feed URL as confidential and do not
+                share it publicly.
               </li>
             </ul>
           </section>
@@ -81,6 +96,7 @@ export default function PrivacyPage() {
               <li>Provide and operate the Service (accounts, subscriptions, and feeds)</li>
               <li>Personalize your experience (e.g., saved/followed events and filters)</li>
               <li>Sync events to your calendar if you enable calendar features</li>
+              <li>Display speaker profiles to event organizers (when you publish your profile)</li>
               <li>Moderate and manage submitted events</li>
               <li>Maintain security, prevent abuse, and debug issues</li>
               <li>Communicate with you about the Service (including transactional messages)</li>
@@ -168,6 +184,10 @@ export default function PrivacyPage() {
               <li>Update profile information in your account</li>
               <li>Unsubscribe from optional communications where offered</li>
               <li>
+                Keep your personal calendar feed URL confidential; anyone with the URL can access
+                your feed
+              </li>
+              <li>
                 Revoke Google Calendar access in your Google Account settings if you previously
                 connected Google
               </li>
@@ -218,9 +238,9 @@ export default function PrivacyPage() {
             </p>
             <ul className="list-disc pl-6 mb-4 text-gray-700 dark:text-gray-300">
               <li>
-                Email: <a href="mailto:support@themediacalnedar.com">support@themediacalnedar.com</a>
+                Email: <a href="mailto:support@themediacalendar.com">support@themediacalendar.com</a>
               </li>
-              <li>Website: themediacalnedar.com</li>
+              <li>Website: themediacalendar.com</li>
             </ul>
           </section>
         </div>

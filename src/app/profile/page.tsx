@@ -356,7 +356,7 @@ export default function ProfilePage() {
                   {profile.feedToken}
                 </code>
                 <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  Use this token to access your personalized calendar feed.
+                  Use this token to access your personalized calendar feed. <strong>Anyone with your feed URL can access your subscription data.</strong> Treat your feed URL as confidential and do not share it publicly.
                 </p>
               </div>
             )}

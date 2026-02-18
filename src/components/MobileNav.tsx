@@ -21,9 +21,9 @@ export default function MobileNav() {
           <Image
             src="/logo.png"
             alt="TMC Logo"
-            width={80}
-            height={80}
-            className="rounded w-12 h-12 md:w-20 md:h-20"
+            width={96}
+            height={96}
+            className="rounded w-12 h-12 md:w-24 md:h-24"
           />
           The Media Calendar
         </Link>

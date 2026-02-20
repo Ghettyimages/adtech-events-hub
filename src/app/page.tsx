@@ -20,7 +20,7 @@ export default function HomePage() {
           The Media Calendar
         </h1>
         <p className="text-base md:text-lg text-gray-600 dark:text-gray-400 mb-6">
-          Discover upcoming conferences, webinars, and networking events in the AdTech ecosystem.
+          Discover upcoming conferences, summits and networking events in the Media, Marketing and AdTech ecosystem. <strong>Create your speaker profile</strong> and let's diversify the stage. Contact us for access to the speaker database.
         </p>
         <HomePageActions siteUrl={siteUrl} />
       </div>

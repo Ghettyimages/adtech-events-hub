@@ -56,6 +56,11 @@ export async function POST() {
       missingFields.push(`at least ${MIN_TOPICS_FOR_PUBLISH} topic(s)`);
     }
 
+    // If preferred contact is phone, require contact phone
+    if (profile.preferredContact === 'PHONE' && !profile.contactPhone?.trim()) {
+      missingFields.push('contact phone (required when phone is preferred contact)');
+    }
+
     if (missingFields.length > 0) {
       return NextResponse.json(
         {

@@ -34,6 +34,7 @@ interface SpeakerProfileData {
   contactVisibility: string;
   status: string;
   topicNames: string[];
+  accountEmail?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -157,7 +158,7 @@ export default function SpeakerProfilePage() {
           availableInPerson: data.availableInPerson ?? true,
           noticePeriodDays: data.noticePeriodDays?.toString() || '',
           willingToTravel: data.willingToTravel ?? false,
-          contactEmail: data.contactEmail || '',
+          contactEmail: data.contactEmail || data.accountEmail || '',
           contactPhone: data.contactPhone || '',
           preferredContact: data.preferredContact || 'EMAIL',
           contactVisibility: data.contactVisibility || 'ORGANIZERS_ONLY',
@@ -784,43 +785,10 @@ export default function SpeakerProfilePage() {
               </h2>
 
               <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label
-                      htmlFor="contactEmail"
-                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-                    >
-                      Contact Email
-                    </label>
-                    <input
-                      id="contactEmail"
-                      name="contactEmail"
-                      type="email"
-                      value={formData.contactEmail}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                      placeholder="contact@example.com"
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="contactPhone"
-                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-                    >
-                      Contact Phone (optional)
-                    </label>
-                    <input
-                      id="contactPhone"
-                      name="contactPhone"
-                      type="tel"
-                      value={formData.contactPhone}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                      placeholder="+1 (555) 123-4567"
-                    />
-                  </div>
-                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Select your preferred way for organizers to reach you. We&apos;ll use your
+                  account email if you haven&apos;t entered one.
+                </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -865,6 +833,44 @@ export default function SpeakerProfilePage() {
                     </select>
                   </div>
                 </div>
+
+                <div>
+                  <label
+                    htmlFor="contactEmail"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                  >
+                    Contact Email
+                  </label>
+                  <input
+                    id="contactEmail"
+                    name="contactEmail"
+                    type="email"
+                    value={formData.contactEmail}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    placeholder="contact@example.com"
+                  />
+                </div>
+
+                {formData.preferredContact === 'PHONE' && (
+                  <div>
+                    <label
+                      htmlFor="contactPhone"
+                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                    >
+                      Contact Phone <span className="text-red-500">(required)</span>
+                    </label>
+                    <input
+                      id="contactPhone"
+                      name="contactPhone"
+                      type="tel"
+                      value={formData.contactPhone}
+                      onChange={handleChange}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                      placeholder="+1 (555) 123-4567"
+                    />
+                  </div>
+                )}
               </div>
             </section>
 

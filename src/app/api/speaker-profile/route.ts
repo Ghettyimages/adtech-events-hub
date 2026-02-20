@@ -47,6 +47,9 @@ export async function GET() {
     let profile = await prisma.speakerProfile.findUnique({
       where: { userId },
       include: {
+        user: {
+          select: { email: true, companyEmail: true },
+        },
         topics: {
           include: {
             tag: true,
@@ -73,6 +76,7 @@ export async function GET() {
           location: true,
           linkedInProfile: true,
           companyEmail: true,
+          email: true,
         },
       });
 
@@ -84,10 +88,13 @@ export async function GET() {
           roleTitle: user?.title || null,
           location: user?.location || null,
           linkedinUrl: user?.linkedInProfile || null,
-          contactEmail: user?.companyEmail || null,
+          contactEmail: user?.companyEmail || user?.email || null,
           status: 'DRAFT',
         },
         include: {
+          user: {
+            select: { email: true, companyEmail: true },
+          },
           topics: {
             include: {
               tag: true,
@@ -121,6 +128,7 @@ export async function GET() {
 
     return NextResponse.json({
       ...profile,
+      accountEmail: profile.user?.email ?? null,
       talkFormats,
       topicNames,
       topicsWithDetails,

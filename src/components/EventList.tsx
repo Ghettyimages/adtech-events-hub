@@ -1,12 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { Event } from '@prisma/client';
-import { formatEventDateForDisplay } from '@/lib/events';
+import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
 
 interface EventListProps {
   events: Event[];
   onSelect: (event: Event) => void;
   emptyStateMessage?: string;
+  /** When true, past events are shown in a collapsible section (collapsed by default). Default: true */
+  collapsePastEvents?: boolean;
 }
 
 function formatDate(value: Date | string | null, isAllDay: boolean = false, isEndDate: boolean = false) {
@@ -23,17 +26,15 @@ function formatDate(value: Date | string | null, isAllDay: boolean = false, isEn
   return formatEventDateForDisplay(date, isAllDay, isEndDate);
 }
 
-export default function EventList({ events, onSelect, emptyStateMessage }: EventListProps) {
-  if (!events.length) {
-    return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 text-center text-gray-600 dark:text-gray-300">
-        {emptyStateMessage || 'No published events yet. Check back soon!'}
-      </div>
-    );
-  }
-
+function EventListContent({
+  events,
+  onSelect,
+}: {
+  events: Event[];
+  onSelect: (event: Event) => void;
+}) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+    <>
       {/* Mobile: card layout */}
       <div className="block md:hidden divide-y divide-gray-200 dark:divide-gray-700">
         {events.map((event) => (
@@ -75,7 +76,7 @@ export default function EventList({ events, onSelect, emptyStateMessage }: Event
               <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
                 Ends
               </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
                 Location
               </th>
               <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
@@ -117,12 +118,12 @@ export default function EventList({ events, onSelect, emptyStateMessage }: Event
                   {(event.city || event.region || event.country) ? (
                     <div>
                       {[event.city, event.region, event.country].filter(Boolean).join(', ')}
-                      {event.location && 
-                       event.location !== [event.city, event.region, event.country].filter(Boolean).join(', ') && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          {event.location}
-                        </div>
-                      )}
+                      {event.location &&
+                        event.location !== [event.city, event.region, event.country].filter(Boolean).join(', ') && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {event.location}
+                          </div>
+                        )}
                     </div>
                   ) : (
                     event.location || 'Online'
@@ -165,6 +166,60 @@ export default function EventList({ events, onSelect, emptyStateMessage }: Event
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+export default function EventList({
+  events,
+  onSelect,
+  emptyStateMessage,
+  collapsePastEvents = true,
+}: EventListProps) {
+  const [pastEventsExpanded, setPastEventsExpanded] = useState(false);
+
+  if (!events.length) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 text-center text-gray-600 dark:text-gray-300">
+        {emptyStateMessage || 'No published events yet. Check back soon!'}
+      </div>
+    );
+  }
+
+  const shouldCollapsePast =
+    collapsePastEvents &&
+    events.some((e) => isEventPast(e)) &&
+    events.some((e) => !isEventPast(e));
+  const upcomingEvents = shouldCollapsePast ? events.filter((e) => !isEventPast(e)) : events;
+  const pastEvents = shouldCollapsePast ? events.filter((e) => isEventPast(e)) : [];
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+      <EventListContent events={upcomingEvents} onSelect={onSelect} />
+
+      {pastEvents.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={() => setPastEventsExpanded(!pastEventsExpanded)}
+            className="flex items-center gap-2 w-full text-left py-2 font-semibold text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 transition"
+            aria-expanded={pastEventsExpanded}
+          >
+            <span
+              className={`inline-block transition-transform ${pastEventsExpanded ? 'rotate-90' : ''}`}
+              aria-hidden
+            >
+              ▶
+            </span>
+            Past events ({pastEvents.length})
+          </button>
+          {pastEventsExpanded && (
+            <div className="mt-2" role="region" aria-label="Past events">
+              <EventListContent events={pastEvents} onSelect={onSelect} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

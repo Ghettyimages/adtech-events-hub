@@ -1,5 +1,13 @@
 import { Event } from '@prisma/client';
-import { format } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
+
+/**
+ * Returns true if the event has ended (end date is before the start of today).
+ */
+export function isEventPast(event: { end: Date | string }): boolean {
+  const end = new Date(event.end);
+  return end < startOfDay(new Date());
+}
 
 /**
  * Formats a date for display, handling all-day events correctly

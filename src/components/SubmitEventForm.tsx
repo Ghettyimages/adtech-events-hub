@@ -168,8 +168,8 @@ export default function SubmitEventForm() {
             const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
             return date.toISOString();
           } else {
-            // End: Store at UTC noon on the next day (FullCalendar uses exclusive end dates for all-day events)
-            const date = new Date(Date.UTC(year, month - 1, day + 1, 12, 0, 0, 0));
+            // End: Store at 22:00 UTC on the selected date (inclusive end date, matches admin/CSV/tools)
+            const date = new Date(Date.UTC(year, month - 1, day, 22, 0, 0, 0));
             return date.toISOString();
           }
         } else {

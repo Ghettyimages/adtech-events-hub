@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { Event, Tag } from '@prisma/client';
 import { format } from 'date-fns';
 import TagSelector from '@/components/TagSelector';
 import { getDisplayName } from '@/lib/tags';
-import { formatEventDateForDisplay } from '@/lib/events';
+import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
 
 /**
  * Formats a date for display, handling all-day events correctly
@@ -110,6 +110,24 @@ export default function AdminPage() {
     keywords: '',
   });
   const [sortBy, setSortBy] = useState<'name' | 'usage' | 'created'>('name');
+  const [pastEventsExpanded, setPastEventsExpanded] = useState(false);
+
+  // Event list search/filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const [filterSource, setFilterSource] = useState('');
+  const [filterCountry, setFilterCountry] = useState('');
+  const [filterRegion, setFilterRegion] = useState('');
+  const [filterCity, setFilterCity] = useState('');
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [eventSort, setEventSort] = useState<'date' | 'title' | 'location'>('date');
+  const [eventsLoading, setEventsLoading] = useState(false);
+
+  // Debounce search query for event list
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(searchQuery), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   // Check authentication and admin status
   useEffect(() => {
@@ -131,9 +149,6 @@ export default function AdminPage() {
         router.push('/');
         return;
       }
-      // User is authenticated and is admin, load data
-      fetchPendingEvents();
-      fetchPublishedEvents();
       fetchMonitoredUrls();
     }
   }, [status, session, router]);
@@ -358,9 +373,27 @@ export default function AdminPage() {
     },
   ];
 
-  const fetchPendingEvents = async () => {
+  const buildEventsQueryParams = useCallback(
+    (status: 'PENDING' | 'PUBLISHED') => {
+      const params = new URLSearchParams();
+      params.set('status', status);
+      if (searchDebounced) params.set('q', searchDebounced);
+      if (filterSource) params.set('source', filterSource);
+      if (filterCountry) params.set('country', filterCountry);
+      if (filterRegion) params.set('region', filterRegion);
+      if (filterCity) params.set('city', filterCity);
+      if (filterTags.length > 0) params.set('tags', filterTags.join(','));
+      if (eventSort !== 'date') params.set('sort', eventSort);
+      return params;
+    },
+    [searchDebounced, filterSource, filterCountry, filterRegion, filterCity, filterTags, eventSort]
+  );
+
+  const fetchPendingEvents = useCallback(async () => {
     try {
-      const res = await fetch('/api/events?status=PENDING');
+      setEventsLoading(true);
+      const params = buildEventsQueryParams('PENDING');
+      const res = await fetch(`/api/events?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch pending events');
       const data = await res.json();
       setPendingEvents(data.events);
@@ -368,19 +401,53 @@ export default function AdminPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setEventsLoading(false);
     }
-  };
+  }, [buildEventsQueryParams]);
 
-  const fetchPublishedEvents = async () => {
+  const fetchPublishedEvents = useCallback(async () => {
     try {
-      const res = await fetch('/api/events?status=PUBLISHED');
+      setEventsLoading(true);
+      const params = buildEventsQueryParams('PUBLISHED');
+      const res = await fetch(`/api/events?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch published events');
       const data = await res.json();
       setPublishedEvents(data.events);
     } catch (err: any) {
       console.error('Failed to fetch published events:', err);
+    } finally {
+      setEventsLoading(false);
     }
-  };
+  }, [buildEventsQueryParams]);
+
+  // Fetch events when on Events tab (initial load and when filters change)
+  useEffect(() => {
+    if (status !== 'authenticated' || !session?.user || !(session.user as any)?.isAdmin || adminTab !== 'events') {
+      return;
+    }
+    fetchPendingEvents();
+    fetchPublishedEvents();
+  }, [adminTab, status, session, searchDebounced, filterSource, filterCountry, filterRegion, filterCity, filterTags, eventSort, fetchPendingEvents, fetchPublishedEvents]);
+
+  const clearEventFilters = useCallback(() => {
+    setSearchQuery('');
+    setSearchDebounced('');
+    setFilterSource('');
+    setFilterCountry('');
+    setFilterRegion('');
+    setFilterCity('');
+    setFilterTags([]);
+    setEventSort('date');
+  }, []);
+
+  const hasActiveEventFilters =
+    searchQuery !== '' ||
+    filterSource !== '' ||
+    filterCountry !== '' ||
+    filterRegion !== '' ||
+    filterCity !== '' ||
+    filterTags.length > 0 ||
+    eventSort !== 'date';
 
   const handleApprove = async (id: string) => {
     try {
@@ -1305,9 +1372,118 @@ export default function AdminPage() {
             </div>
           </div>
 
+          {/* Event list search and filters */}
+          <div className="mb-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-[200px] flex-1">
+                <label htmlFor="admin-event-search" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  Search
+                </label>
+                <input
+                  id="admin-event-search"
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by title, description, or location"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="w-40">
+                <label htmlFor="admin-filter-source" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  Source
+                </label>
+                <input
+                  id="admin-filter-source"
+                  type="text"
+                  value={filterSource}
+                  onChange={(e) => setFilterSource(e.target.value)}
+                  placeholder="Source"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="w-48">
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  Tags
+                </label>
+                <TagSelector
+                  selectedTags={filterTags}
+                  onChange={setFilterTags}
+                  placeholder="Any tag"
+                  allowCustom={false}
+                />
+              </div>
+              <div className="w-32">
+                <label htmlFor="admin-filter-country" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  Country
+                </label>
+                <input
+                  id="admin-filter-country"
+                  type="text"
+                  value={filterCountry}
+                  onChange={(e) => setFilterCountry(e.target.value)}
+                  placeholder="Country"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="w-32">
+                <label htmlFor="admin-filter-region" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  Region
+                </label>
+                <input
+                  id="admin-filter-region"
+                  type="text"
+                  value={filterRegion}
+                  onChange={(e) => setFilterRegion(e.target.value)}
+                  placeholder="Region"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="w-32">
+                <label htmlFor="admin-filter-city" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  City
+                </label>
+                <input
+                  id="admin-filter-city"
+                  type="text"
+                  value={filterCity}
+                  onChange={(e) => setFilterCity(e.target.value)}
+                  placeholder="City"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="w-36">
+                <label htmlFor="admin-event-sort" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  Sort
+                </label>
+                <select
+                  id="admin-event-sort"
+                  value={eventSort}
+                  onChange={(e) => setEventSort(e.target.value as 'date' | 'title' | 'location')}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="date">Date</option>
+                  <option value="title">Title</option>
+                  <option value="location">Location</option>
+                </select>
+              </div>
+              {hasActiveEventFilters && (
+                <button
+                  type="button"
+                  onClick={clearEventFilters}
+                  className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+            {eventsLoading && (
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading events…</p>
+            )}
+          </div>
+
       {/* Published Events Section */}
       {eventViewMode === 'published' && (
-        <div className="mb-8">
+        <div className="mb-8 space-y-6">
         {publishedEvents.length === 0 ? (
           <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
             <p className="text-gray-600 dark:text-gray-400 text-lg">
@@ -1315,78 +1491,128 @@ export default function AdminPage() {
             </p>
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead className="bg-gray-50 dark:bg-gray-900">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
-                      Title
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
-                      Start
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
-                      End
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
-                      Location
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
-                      Source
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {publishedEvents.map((event) => (
-                    <tr key={event.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/60">
-                      <td className="px-4 py-4 whitespace-normal text-sm font-medium text-gray-900 dark:text-gray-100">
-                        <div className="flex items-center gap-2">
-                          <span>{event.title}</span>
-                          {'subscribers' in event && typeof event.subscribers === 'number' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                              👥 {event.subscribers}
-                            </span>
-                          )}
+          <>
+            {(() => {
+              const upcomingEvents = publishedEvents.filter((e) => !isEventPast(e));
+              const pastEvents = publishedEvents.filter((e) => isEventPast(e));
+
+              const renderEventTable = (eventsToRender: Event[]) => (
+                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-md overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead className="bg-gray-50 dark:bg-gray-900">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                            Title
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                            Start
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                            End
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                            Location
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                            Source
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {eventsToRender.map((event) => (
+                          <tr key={event.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/60">
+                            <td className="px-4 py-4 whitespace-normal text-sm font-medium text-gray-900 dark:text-gray-100">
+                              <div className="flex items-center gap-2">
+                                <span>{event.title}</span>
+                                {'subscribers' in event && typeof event.subscribers === 'number' && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                    👥 {event.subscribers}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                              {formatEventDate(event.start, !event.timezone, false)}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                              {formatEventDate(event.end, !event.timezone, true)}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                              {event.location || '—'}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                              {event.source || '—'}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-right">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  onClick={() => handleEditEvent(event)}
+                                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-xs font-semibold"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteEvent(event.id)}
+                                  className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-xs font-semibold"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+
+              return (
+                <>
+                  {upcomingEvents.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Upcoming events</h3>
+                      {renderEventTable(upcomingEvents)}
+                    </div>
+                  )}
+                  {upcomingEvents.length === 0 && pastEvents.length > 0 && (
+                    <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
+                      <p className="text-gray-600 dark:text-gray-400 text-lg">
+                        No upcoming events. All published events are in the past.
+                      </p>
+                    </div>
+                  )}
+                  {pastEvents.length > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setPastEventsExpanded(!pastEventsExpanded)}
+                        className="flex items-center gap-2 w-full text-left py-2 font-semibold text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 transition"
+                        aria-expanded={pastEventsExpanded}
+                      >
+                        <span
+                          className={`inline-block transition-transform ${pastEventsExpanded ? 'rotate-90' : ''}`}
+                          aria-hidden
+                        >
+                          ▶
+                        </span>
+                        Past events ({pastEvents.length})
+                      </button>
+                      {pastEventsExpanded && (
+                        <div className="mt-2" role="region" aria-label="Past events">
+                          {renderEventTable(pastEvents)}
                         </div>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {formatEventDate(event.start, !event.timezone, false)}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {formatEventDate(event.end, !event.timezone, true)}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {event.location || '—'}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {event.source || '—'}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => handleEditEvent(event)}
-                            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-xs font-semibold"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteEvent(event.id)}
-                            className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-xs font-semibold"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </>
         )}
         </div>
       )}

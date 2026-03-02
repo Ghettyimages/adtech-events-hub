@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
+    const q = searchParams.get('q')?.trim();
     const tags = searchParams.get('tags');
     const country = searchParams.get('country');
     const region = searchParams.get('region');
@@ -19,6 +20,15 @@ export async function GET(request: NextRequest) {
       status: status || 'PUBLISHED',
     };
 
+    // Text search: title, description, location (case-insensitive)
+    if (q) {
+      baseWhere.OR = [
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { location: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
     // Add location filtering
     if (country) {
       baseWhere.country = country;
@@ -27,9 +37,9 @@ export async function GET(request: NextRequest) {
       baseWhere.region = region;
     }
     if (city) {
-      // Case-insensitive search (SQLite doesn't support mode: 'insensitive', but we can use contains)
       baseWhere.city = {
         contains: city,
+        mode: 'insensitive',
       };
     }
     if (source) {

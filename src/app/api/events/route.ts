@@ -87,12 +87,28 @@ export async function GET(request: NextRequest) {
         break;
     }
 
+    const session = await auth();
+    const isAdmin = (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin === true;
+
     const events = await prisma.event.findMany({
       where,
       orderBy,
+      ...(isAdmin
+        ? {
+            include: {
+              submitter: {
+                select: { name: true, email: true },
+              },
+            },
+          }
+        : {}),
     });
 
-    return NextResponse.json({ events });
+    return NextResponse.json({ events }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+      },
+    });
   } catch (error: any) {
     console.error('Error fetching events:', error);
     return NextResponse.json({ error: 'Failed to fetch events' }, { status: 500 });

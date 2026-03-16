@@ -283,18 +283,6 @@ export default function SubmitEventForm() {
   return (
     <div className="max-w-2xl mx-auto">
       <form onSubmit={handleSubmit} className="space-y-6">
-        {success && (
-          <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg">
-            ✅ Event submitted successfully! It will appear on the calendar once approved.
-          </div>
-        )}
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
-            ❌ {error}
-          </div>
-        )}
-
         <div>
           <label htmlFor="title" className="block text-sm font-semibold mb-2">
             Event Title *
@@ -549,6 +537,18 @@ export default function SubmitEventForm() {
         >
           {loading ? 'Submitting...' : 'Submit Event for Approval'}
         </button>
+
+        {success && (
+          <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg">
+            ✅ Event submitted successfully! It will appear on the calendar once approved.
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+            ❌ {error}
+          </div>
+        )}
       </form>
     </div>
   );

@@ -61,10 +61,14 @@ interface AdminTopEvent {
   totalReach: number;
 }
 
+interface EventWithSubmitter extends Event {
+  submitter?: { name: string | null; email: string | null } | null;
+}
+
 export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [pendingEvents, setPendingEvents] = useState<Event[]>([]);
+  const [pendingEvents, setPendingEvents] = useState<EventWithSubmitter[]>([]);
   const [publishedEvents, setPublishedEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1665,6 +1669,11 @@ export default function AdminPage() {
                         {event.source && (
                           <p>
                             <strong>Source:</strong> {event.source}
+                          </p>
+                        )}
+                        {event.submitter && (
+                          <p>
+                            <strong>Submitted by:</strong> {event.submitter.name || 'Unknown'} ({event.submitter.email || 'No email'})
                           </p>
                         )}
                         {event.tags && (() => {

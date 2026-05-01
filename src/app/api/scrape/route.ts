@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { scrapeUrlGeneric } from '@/lib/scraper';
 import { extractEventsFromUrl } from '@/lib/extractor/agent';
-import { normalize_events, upsert_events } from '@/lib/tools';
+import { normalize_events, ingestScrapedEvents } from '@/lib/tools';
 
 // GET: List all monitored URLs
 export async function GET(request: NextRequest) {
@@ -194,14 +194,15 @@ export async function POST(request: NextRequest) {
       location_evidence: event.location_evidence,
     }));
 
-    const upsertResult = await upsert_events({
-      events: filteredEvents,
+    const ingestResult = await ingestScrapedEvents(filteredEvents, {
       publish: false,
     });
 
-    const successCount = upsertResult.created || 0;
-    const skipCount = upsertResult.skipped || 0;
-    const errorCount = upsertResult.errors || 0;
+    const successCount = ingestResult.created || 0;
+    const flaggedDuplicateCount = ingestResult.flaggedDuplicate || 0;
+    const skipCount = ingestResult.skipped || 0;
+    const errorCount = ingestResult.errors || 0;
+    const totalIngested = successCount + flaggedDuplicateCount;
 
     let monitoredUrl = null;
     if (enableMonitoring) {
@@ -212,14 +213,14 @@ export async function POST(request: NextRequest) {
           name: name || sourceName,
           enabled: true,
           lastChecked: new Date(),
-          lastSuccess: successCount > 0 ? new Date() : null,
-          lastError: successCount === 0 ? 'No new events added' : null,
+          lastSuccess: totalIngested > 0 ? new Date() : null,
+          lastError: totalIngested === 0 ? 'No new events added' : null,
         },
         update: {
           name: name || sourceName,
           lastChecked: new Date(),
-          lastSuccess: successCount > 0 ? new Date() : null,
-          lastError: successCount === 0 ? 'No new events added' : null,
+          lastSuccess: totalIngested > 0 ? new Date() : null,
+          lastError: totalIngested === 0 ? 'No new events added' : null,
         },
       });
     }
@@ -230,6 +231,7 @@ export async function POST(request: NextRequest) {
       eventsFound: normalizationResult.count,
       rawEventsFound: extractedEvents.length,
       eventsAdded: successCount,
+      eventsFlaggedDuplicate: flaggedDuplicateCount,
       eventsSkipped: skipCount,
       eventsErrored: errorCount,
       skippedPastEvents: pastEventsSkipped,

@@ -4,7 +4,11 @@
 
 import { prisma } from './db';
 import { ExtractedEvent } from './extractor/schema';
-import { parse, isValid } from 'date-fns';
+import {
+  fingerprintFromNormalizedEvent,
+  computeCandidateRowFingerprint,
+  findCandidateMatch,
+} from './dedupe';
 import { parseLocationString } from './extractor/locationExtractor';
 import { extractTags, normalizeTags } from './extractor/tagExtractor';
 
@@ -223,8 +227,97 @@ export interface UpsertEventsResult {
   errors: number;
 }
 
+export interface IngestScrapedEventsResult {
+  created: number;
+  flaggedDuplicate: number;
+  skipped: number;
+  errors: number;
+}
+
 /**
- * Upsert events to database
+ * Scrape ingestion: new rows become PENDING. If a DB match exists, create a flagged PENDING row for admin review (no silent merge).
+ */
+export async function ingestScrapedEvents(
+  events: ExtractedEvent[],
+  options: { publish?: boolean } = {}
+): Promise<IngestScrapedEventsResult> {
+  const publish = options.publish ?? false;
+  let created = 0;
+  let flaggedDuplicate = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  for (const event of events) {
+    try {
+      if (!event.start || !event.end) {
+        skipped++;
+        continue;
+      }
+
+      const tagsJson =
+        event.tags && event.tags.length > 0 ? JSON.stringify(event.tags) : null;
+
+      const baseData = {
+        title: event.title,
+        description: event.description || null,
+        url: event.url || null,
+        location: event.location || null,
+        start: new Date(event.start),
+        end: new Date(event.end),
+        timezone: event.timezone || null,
+        source: event.source || null,
+        tags: tagsJson,
+        country: event.country || null,
+        region: event.region || null,
+        city: event.city || null,
+      };
+
+      const match = await findCandidateMatch(event);
+
+      if (!match) {
+        const fp = fingerprintFromNormalizedEvent(event);
+        await prisma.event.create({
+          data: {
+            ...baseData,
+            dedupeFingerprint: fp,
+            status: publish ? 'PUBLISHED' : 'PENDING',
+            potentialDuplicateOfId: null,
+            duplicateReviewStatus: null,
+          },
+        });
+        created++;
+      } else {
+        const candidateFp = computeCandidateRowFingerprint({
+          title: event.title,
+          start: event.start,
+          location: event.location,
+          url: event.url,
+          city: event.city,
+          region: event.region,
+          country: event.country,
+        });
+        await prisma.event.create({
+          data: {
+            ...baseData,
+            dedupeFingerprint: candidateFp,
+            potentialDuplicateOfId: match.existing.id,
+            duplicateReviewStatus: 'PENDING_REVIEW',
+            status: 'PENDING',
+          },
+        });
+        flaggedDuplicate++;
+      }
+    } catch (error: any) {
+      console.error(`Error ingesting scraped event "${event.title}":`, error);
+      errors++;
+    }
+  }
+
+  return { created, flaggedDuplicate, skipped, errors };
+}
+
+/**
+ * Upsert events to database (CSV and other batch imports): update in place when fingerprint or legacy key matches.
  */
 export async function upsert_events(
   input: UpsertEventsInput
@@ -243,17 +336,21 @@ export async function upsert_events(
         continue;
       }
 
-      // Create a unique key based on title, start date, and location
-      const uniqueKey = `${event.title.toLowerCase()}|${event.start}|${event.location || ''}`;
+      const fp = fingerprintFromNormalizedEvent(event);
 
-      // Check if event already exists (simple deduplication)
-      const existing = await prisma.event.findFirst({
-        where: {
-          title: event.title,
-          start: new Date(event.start),
-          location: event.location || null,
-        },
+      let existing = await prisma.event.findFirst({
+        where: { dedupeFingerprint: fp },
       });
+
+      if (!existing) {
+        existing = await prisma.event.findFirst({
+          where: {
+            title: event.title,
+            start: new Date(event.start),
+            location: event.location || null,
+          },
+        });
+      }
 
       // Convert tags array to JSON string for storage
       const tagsJson = event.tags && event.tags.length > 0 
@@ -279,6 +376,7 @@ export async function upsert_events(
             country: event.country || null,
             region: event.region || null,
             city: event.city || null,
+            dedupeFingerprint: fp,
             status: publish ? 'PUBLISHED' : existing.status,
             updatedAt: new Date(),
           },
@@ -301,6 +399,7 @@ export async function upsert_events(
             country: event.country || null,
             region: event.region || null,
             city: event.city || null,
+            dedupeFingerprint: fp,
             status: publish ? 'PUBLISHED' : 'PENDING',
           },
         });

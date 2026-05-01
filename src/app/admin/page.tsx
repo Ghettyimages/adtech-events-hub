@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Event, Tag } from '@prisma/client';
 import { format } from 'date-fns';
 import TagSelector from '@/components/TagSelector';
+import DuplicateReviewModal from '@/components/admin/DuplicateReviewModal';
 import { getDisplayName } from '@/lib/tags';
 import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
 
@@ -63,6 +64,8 @@ interface AdminTopEvent {
 
 interface EventWithSubmitter extends Event {
   submitter?: { name: string | null; email: string | null } | null;
+  potentialDuplicateOfId: string | null;
+  duplicateReviewStatus: string | null;
 }
 
 export default function AdminPage() {
@@ -126,6 +129,8 @@ export default function AdminPage() {
   const [filterTags, setFilterTags] = useState<string[]>([]);
   const [eventSort, setEventSort] = useState<'date' | 'title' | 'location'>('date');
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
+  const [reviewingDuplicateEvent, setReviewingDuplicateEvent] = useState<EventWithSubmitter | null>(null);
 
   // Debounce search query for event list
   useEffect(() => {
@@ -442,6 +447,7 @@ export default function AdminPage() {
     setFilterCity('');
     setFilterTags([]);
     setEventSort('date');
+    setShowDuplicatesOnly(false);
   }, []);
 
   const hasActiveEventFilters =
@@ -451,7 +457,14 @@ export default function AdminPage() {
     filterRegion !== '' ||
     filterCity !== '' ||
     filterTags.length > 0 ||
-    eventSort !== 'date';
+    eventSort !== 'date' ||
+    showDuplicatesOnly;
+
+  const duplicatePendingEvents = pendingEvents.filter(
+    (event) => event.duplicateReviewStatus === 'PENDING_REVIEW' && Boolean(event.potentialDuplicateOfId)
+  );
+
+  const visiblePendingEvents = showDuplicatesOnly ? duplicatePendingEvents : pendingEvents;
 
   const handleApprove = async (id: string) => {
     try {
@@ -575,7 +588,8 @@ export default function AdminPage() {
         `✅ Scraped successfully using ${data.extractionMethod || 'agent'} method`,
         `Found ${data.eventsFound || 0} events`,
         data.eventsAdded ? `Added ${data.eventsAdded} new events (pending approval)` : '',
-        data.eventsSkipped ? `${data.eventsSkipped} duplicates skipped` : '',
+        data.eventsFlaggedDuplicate ? `${data.eventsFlaggedDuplicate} potential duplicates sent to review queue` : '',
+        data.eventsSkipped ? `${data.eventsSkipped} events skipped (missing required dates)` : '',
         data.skippedPastEvents ? `${data.skippedPastEvents} past events skipped` : '',
         enableMonitoring && data.monitoredUrl ? '✅ URL added to monitoring' : '',
       ].filter(Boolean);
@@ -612,6 +626,15 @@ export default function AdminPage() {
     } catch (err: any) {
       setFeedback('error', err.message || 'Failed to update monitored URL');
     }
+  };
+
+  const handleOpenDuplicateReview = (event: EventWithSubmitter) => {
+    setReviewingDuplicateEvent(event);
+  };
+
+  const handleDuplicateReviewResolved = async () => {
+    setReviewingDuplicateEvent(null);
+    await fetchPendingEvents();
   };
 
   const handleDeleteMonitoredUrl = async (id: string) => {
@@ -1470,6 +1493,17 @@ export default function AdminPage() {
                   <option value="location">Location</option>
                 </select>
               </div>
+              {eventViewMode === 'pending' && (
+                <label className="inline-flex h-10 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 text-sm font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100">
+                  <input
+                    type="checkbox"
+                    checked={showDuplicatesOnly}
+                    onChange={(e) => setShowDuplicatesOnly(e.target.checked)}
+                    className="h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                  />
+                  Duplicates only ({duplicatePendingEvents.length})
+                </label>
+              )}
               {hasActiveEventFilters && (
                 <button
                   type="button"
@@ -1624,18 +1658,22 @@ export default function AdminPage() {
       {/* Pending Events Section */}
       {eventViewMode === 'pending' && (
         <div className="mb-8">
-          {pendingEvents.length === 0 ? (
+          {visiblePendingEvents.length === 0 ? (
             <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
               <p className="text-gray-600 dark:text-gray-400 text-lg">
-                No pending events to review.
+                {showDuplicatesOnly ? 'No potential duplicates pending review.' : 'No pending events to review.'}
               </p>
             </div>
           ) : (
             <div className="space-y-6">
-              {pendingEvents.map((event) => (
+              {visiblePendingEvents.map((event) => (
                 <div
                   key={event.id}
-                  className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 shadow-md"
+                  className={`bg-white dark:bg-gray-800 border rounded-lg p-6 shadow-md ${
+                    event.duplicateReviewStatus === 'PENDING_REVIEW'
+                      ? 'border-amber-400 bg-amber-50/40 dark:border-amber-500 dark:bg-amber-900/20'
+                      : 'border-gray-200 dark:border-gray-700'
+                  }`}
                 >
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
@@ -1646,6 +1684,11 @@ export default function AdminPage() {
                         {'subscribers' in event && typeof event.subscribers === 'number' && (
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                             👥 {event.subscribers} {event.subscribers === 1 ? 'subscriber' : 'subscribers'}
+                          </span>
+                        )}
+                        {event.duplicateReviewStatus === 'PENDING_REVIEW' && event.potentialDuplicateOfId && (
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
+                            Potential duplicate
                           </span>
                         )}
                       </div>
@@ -1726,6 +1769,14 @@ export default function AdminPage() {
                   </div>
 
                   <div className="flex gap-3 pt-4 border-t">
+                    {event.duplicateReviewStatus === 'PENDING_REVIEW' && event.potentialDuplicateOfId && (
+                      <button
+                        onClick={() => handleOpenDuplicateReview(event)}
+                        className="px-6 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition font-semibold"
+                      >
+                        Review
+                      </button>
+                    )}
                     <button
                       onClick={() => handleEditEvent(event)}
                       className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
@@ -2386,6 +2437,13 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+      <DuplicateReviewModal
+        isOpen={Boolean(reviewingDuplicateEvent)}
+        pendingEvent={reviewingDuplicateEvent}
+        onClose={() => setReviewingDuplicateEvent(null)}
+        onResolved={handleDuplicateReviewResolved}
+      />
     </div>
   );
 }
+

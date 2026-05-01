@@ -12,6 +12,7 @@ import { extractFromHtml } from './extractFromHtml';
 import { extractStrictDates } from './dateExtractor';
 import { extractStrictLocation } from './locationExtractor';
 import { getRenderedHTML } from '../render';
+import { dedupeBasisString } from '../dedupe';
 
 const MAX_HTML_LENGTH = 150000; // Truncate HTML while keeping majority of page content
 
@@ -124,7 +125,12 @@ const mapAgentEvents = (rawEvents: AgentRawEvent[], finalUrl: string): Extracted
     const endIso = parseDateToISO(raw.dates?.end ?? raw.dates?.start ?? undefined);
     const source = deriveSourceName(finalUrl, raw.source);
 
-    const dedupeKey = `${title.toLowerCase()}|${startIso ?? ''}|${location ?? ''}`;
+    const dedupeKey = dedupeBasisString({
+      title,
+      start: startIso,
+      location,
+      url: link,
+    });
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
 

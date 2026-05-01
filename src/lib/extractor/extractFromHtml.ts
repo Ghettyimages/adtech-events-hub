@@ -4,6 +4,7 @@
  */
 
 import * as cheerio from 'cheerio';
+import { dedupeBasisString } from '../dedupe';
 
 export interface RoughEventRow {
   title?: string;
@@ -77,10 +78,14 @@ export function extractFromHtml(html: string, baseUrl: string): RoughEventRow[] 
     });
   }
 
-  // Deduplicate by title
   const seen = new Set<string>();
   return rows.filter((row) => {
-    const key = row.title?.toLowerCase() || '';
+    const key = dedupeBasisString({
+      title: row.title || '',
+      start: row.date || null,
+      location: row.location,
+      url: row.url,
+    });
     if (seen.has(key)) {
       return false;
     }

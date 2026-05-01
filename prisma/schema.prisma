@@ -32,11 +32,21 @@ model Event {
   submittedBy String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  dedupeFingerprint      String?  @unique
+  potentialDuplicateOfId String?
+  duplicateReviewStatus  String? // null | PENDING_REVIEW | RESOLVED
+
+  potentialDuplicateOf Event?  @relation("EventDuplicateOf", fields: [potentialDuplicateOfId], references: [id], onDelete: SetNull)
+  duplicateCandidates  Event[] @relation("EventDuplicateOf")
+
   // relations
   follows     EventFollow[]
   userEventSyncs UserEventSync[]
   filterExclusions FilterExclusion[]
   submitter   User?    @relation("SubmittedEvents", fields: [submittedBy], references: [id])
+
+  @@index([duplicateReviewStatus])
 }
 
 model MonitoredUrl {

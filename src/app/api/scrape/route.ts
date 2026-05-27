@@ -7,6 +7,9 @@ import { prisma } from '@/lib/db';
 import { scrapeUrlGeneric } from '@/lib/scraper';
 import { extractEventsFromUrl } from '@/lib/extractor/agent';
 import { normalize_events, ingestScrapedEvents } from '@/lib/tools';
+import { markdownToOverrideHtml, scrapeUrlWithFirecrawl } from '@/lib/firecrawl';
+
+type ExtractionMethod = 'agent' | 'generic' | 'firecrawl' | 'firecrawl-agent';
 
 // GET: List all monitored URLs
 export async function GET(request: NextRequest) {
@@ -58,9 +61,11 @@ export async function POST(request: NextRequest) {
     const sourceName = name || domain;
     const defaultTimezone = process.env.DEFAULT_TIMEZONE || 'America/New_York';
     const forceGeneric = action === 'generic';
+    const forceFirecrawl = action === 'firecrawl';
 
-    let extractionMethod: 'agent' | 'generic' = forceGeneric ? 'generic' : 'agent';
+    let extractionMethod: ExtractionMethod = forceGeneric ? 'generic' : 'agent';
     let agentError: string | null = null;
+    let firecrawlError: string | null = null;
     let extractedEvents: any[] = [];
 
     if (!forceGeneric) {
@@ -82,6 +87,58 @@ export async function POST(request: NextRequest) {
       if (fallbackEvents.length > 0) {
         extractionMethod = 'generic';
         extractedEvents = fallbackEvents;
+      }
+    }
+
+    const shouldTryFirecrawl =
+      forceFirecrawl || !extractedEvents || extractedEvents.length === 0;
+
+    if (shouldTryFirecrawl) {
+      console.log(
+        `[scrape] Firecrawl fallback triggered for ${url} (force=${forceFirecrawl}, priorEvents=${extractedEvents.length})`
+      );
+
+      const firecrawlResult = await scrapeUrlWithFirecrawl(url);
+
+      if (firecrawlResult.error) {
+        firecrawlError = firecrawlResult.error;
+      }
+
+      const hasHtml = Boolean(firecrawlResult.html);
+      const hasMarkdown = Boolean(firecrawlResult.markdown);
+      console.log(
+        `[scrape] Firecrawl content: html=${hasHtml}, markdown=${hasMarkdown}, neither=${!hasHtml && !hasMarkdown}`
+      );
+
+      let overrideHtml: string | undefined;
+      if (firecrawlResult.html) {
+        overrideHtml = firecrawlResult.html;
+      } else if (firecrawlResult.markdown) {
+        overrideHtml = markdownToOverrideHtml(firecrawlResult.markdown);
+      }
+
+      if (overrideHtml) {
+        try {
+          const firecrawlAgentResult = await extractEventsFromUrl(url, sourceName, overrideHtml);
+          const firecrawlEvents = firecrawlAgentResult.events || [];
+          console.log(`[scrape] Events after Firecrawl extraction: ${firecrawlEvents.length}`);
+
+          if (firecrawlEvents.length > 0) {
+            extractionMethod = 'firecrawl-agent';
+            extractedEvents = firecrawlEvents;
+          } else if (forceFirecrawl) {
+            extractionMethod = 'firecrawl';
+          }
+        } catch (error: any) {
+          const message = error?.message || 'Firecrawl agent extraction failed';
+          firecrawlError = firecrawlError || message;
+          if (forceFirecrawl) {
+            extractionMethod = 'firecrawl';
+          }
+          console.warn('[scrape] Firecrawl agent extraction failed:', error);
+        }
+      } else if (forceFirecrawl) {
+        extractionMethod = 'firecrawl';
       }
     }
 
@@ -114,6 +171,7 @@ export async function POST(request: NextRequest) {
         eventsFound: 0,
         message,
         agentError,
+        firecrawlError,
       });
     }
 
@@ -129,6 +187,7 @@ export async function POST(request: NextRequest) {
         eventsFound: 0,
         message: 'No events could be normalized from this page',
         agentError,
+        firecrawlError,
         extractedEvents: [], // Empty array for consistency
       });
     }
@@ -176,6 +235,7 @@ export async function POST(request: NextRequest) {
         message,
         skippedPastEvents: pastEventsSkipped,
         agentError,
+        firecrawlError,
       });
     }
 
@@ -237,6 +297,7 @@ export async function POST(request: NextRequest) {
       skippedPastEvents: pastEventsSkipped,
       monitoredUrl,
       agentError,
+      firecrawlError,
       appliedFilters: {
         skipPastEvents,
       },

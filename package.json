@@ -10,6 +10,7 @@
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
+    "audit:event-dates": "tsx scripts/audit-event-dates.ts",
     "seed": "tsx scripts/seed-from-csv.ts",
     "seed:tags": "tsx scripts/seed-tags.ts"
   },
@@ -19,6 +20,7 @@
     "@fullcalendar/daygrid": "^6.1.10",
     "@fullcalendar/interaction": "^6.1.10",
     "@fullcalendar/react": "^6.1.10",
+    "@mendable/firecrawl-js": "^4.25.0",
     "@prisma/adapter-pg": "^7.1.0",
     "@prisma/client": "^7.1.0",
     "@types/cheerio": "^1.0.0",

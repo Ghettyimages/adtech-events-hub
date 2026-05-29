@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { mainCalendarEventWhere } from '@/lib/hubs';
 import {
   upsertEventToGoogleCalendar,
   deleteEventFromGoogleCalendar,
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
 
       // Get all published events
       eventsToSync = await prisma.event.findMany({
-        where: { status: 'PUBLISHED' },
+        where: mainCalendarEventWhere('PUBLISHED'),
       });
     }
 

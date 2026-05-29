@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { normalizeTagName } from '@/lib/tags';
 import { z } from 'zod';
+import { auth } from '@/lib/auth';
+import { noStoreCacheHeaders, publicListCacheHeaders } from '@/lib/api-cache';
 
 const createTagSchema = z.object({
   name: z.string().min(1, 'Tag name is required').max(100),
@@ -18,6 +20,10 @@ const createTagSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
+    const session = await auth();
+    const isAdmin =
+      (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin === true;
+
     const { searchParams } = new URL(request.url);
     const sort = searchParams.get('sort') || 'name'; // name, usage, created
 
@@ -42,11 +48,12 @@ export async function GET(request: NextRequest) {
       orderBy,
     });
 
-    return NextResponse.json({ tags }, {
-      headers: {
-        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
-      },
-    });
+    return NextResponse.json(
+      { tags },
+      {
+        headers: isAdmin ? noStoreCacheHeaders() : publicListCacheHeaders(),
+      }
+    );
   } catch (error: any) {
     console.error('Error fetching tags:', error);
     return NextResponse.json({ error: 'Failed to fetch tags' }, { status: 500 });

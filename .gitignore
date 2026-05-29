@@ -13,6 +13,9 @@
 # production
 /build
 
+# audit/repair output
+/reports/
+
 # misc
 .DS_Store
 *.pem

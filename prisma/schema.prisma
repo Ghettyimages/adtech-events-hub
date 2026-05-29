@@ -12,10 +12,14 @@ model Event {
   description String?
   url         String?  // external link
   location    String?
-  // store UTC ISO strings; render in local on client
+  // store UTC instants; ALL_DAY also uses civil dates below
   start       DateTime
   end         DateTime
-  timezone    String?  // optional display/default "America/New_York"
+  timezone    String?  // IANA zone for TIMED; null for ALL_DAY
+  temporalKind       String   @default("ALL_DAY") // ALL_DAY | TIMED
+  allDayStartDate    DateTime? @db.Date
+  allDayEndDate      DateTime? @db.Date // inclusive last calendar day
+  dateRepairedAt     DateTime? // set by repair-event-dates script only
   source      String?  // e.g., "Beeler.Tech", "IAB", etc.
 
   // NEW: tags and structured location fields
@@ -37,8 +41,16 @@ model Event {
   potentialDuplicateOfId String?
   duplicateReviewStatus  String? // null | PENDING_REVIEW | RESOLVED
 
+  // Event hub (festival) scoping — hub events excluded from main calendar by default
+  hubId              String?
+  hubHostId          String?
+  showOnMainCalendar Boolean  @default(false)
+
   potentialDuplicateOf Event?  @relation("EventDuplicateOf", fields: [potentialDuplicateOfId], references: [id], onDelete: SetNull)
   duplicateCandidates  Event[] @relation("EventDuplicateOf")
+
+  hub       EventHub? @relation(fields: [hubId], references: [id], onDelete: SetNull)
+  hubHost   HubHost?  @relation(fields: [hubHostId], references: [id], onDelete: SetNull)
 
   // relations
   follows     EventFollow[]
@@ -47,6 +59,53 @@ model Event {
   submitter   User?    @relation("SubmittedEvents", fields: [submittedBy], references: [id])
 
   @@index([duplicateReviewStatus])
+  @@index([temporalKind])
+  @@index([hubId])
+  @@index([hubHostId])
+  @@index([showOnMainCalendar])
+}
+
+model EventHub {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  tagline     String?
+  description String?  @db.Text
+  start       DateTime
+  end         DateTime
+  timezone    String?
+  location    String?
+  status      String   @default("UPCOMING") // DRAFT | UPCOMING | LIVE | ARCHIVED
+  theme       String?  // JSON: heroImage, accentColor, etc.
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  hosts  HubHost[]
+  events Event[]
+
+  @@index([status, start])
+}
+
+model HubHost {
+  id          String   @id @default(cuid())
+  hubId       String
+  slug        String
+  name        String
+  logoUrl     String?
+  websiteUrl  String?
+  description String?  @db.Text
+  sourceAlias String?
+  featured    Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  hub    EventHub @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  events Event[]
+
+  @@unique([hubId, slug])
+  @@index([hubId, featured])
 }
 
 model MonitoredUrl {
@@ -142,7 +201,7 @@ model VerificationToken {
 model Subscription {
   id          String   @id @default(cuid())
   userId      String
-  kind        String   // 'FULL' | 'CUSTOM'
+  kind        String   // 'FULL' | 'CUSTOM' | 'HUB'
   active      Boolean  @default(true)
   filter      String?  // JSON filter for rule-based subscriptions (tags, location, date range)
   createdAt   DateTime @default(now())

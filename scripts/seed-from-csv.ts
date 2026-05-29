@@ -78,70 +78,35 @@ async function seedFromCSV(csvPath: string) {
           row[header] = values[index] || null;
         });
 
-        // Parse dates using the helper function
-        const startDate = parseDate(row.start);
-        const endDate = parseDate(row.end || row.start);
+        const { fromCsvRow, normalizeEventForWrite, temporalFieldsForPrisma } = await import(
+          '../src/lib/eventTemporal'
+        );
 
-        if (!startDate || !endDate) {
+        let temporal;
+        try {
+          const input = fromCsvRow({
+            start: row.start,
+            end: row.end || row.start,
+            timezone: row.timezone,
+            all_day: row.all_day,
+            temporal_kind: row.temporal_kind,
+          });
+          temporal = normalizeEventForWrite({
+            ...input,
+            timezone:
+              input.temporalKind === 'TIMED'
+                ? row.timezone?.trim() || 'America/New_York'
+                : null,
+          });
+        } catch {
           console.error(`⚠️  Row ${i}: Invalid date format`);
           errorCount++;
           continue;
         }
 
-        // Check if dates have time components
-        const startHasTime = hasTimeComponent(row.start);
-        const endHasTime = hasTimeComponent(row.end || row.start);
-        
-        // Determine all-day status: explicit all_day column overrides auto-detection
-        let isAllDay: boolean;
-        if (row.all_day !== undefined && row.all_day !== null && row.all_day !== '') {
-          // Explicit all_day column provided - parse it
-          const allDayValue = row.all_day.trim().toLowerCase();
-          isAllDay = allDayValue === 'true' || allDayValue === '1' || allDayValue === 'yes';
-        } else {
-          // Auto-detect: no time component means all-day
-          isAllDay = !startHasTime && !endHasTime;
-        }
-
-        // For all-day events, use fixed UTC times to prevent timezone shifts
-        // Start: 12:00 UTC, End: 22:00 UTC on the same calendar days (inclusive)
-        let finalStartDate = startDate;
-        let finalEndDate = endDate;
-
-        if (isAllDay) {
-          // Extract UTC date components to preserve calendar day
-          const startYear = startDate.getUTCFullYear();
-          const startMonth = startDate.getUTCMonth();
-          const startDay = startDate.getUTCDate();
-          
-          const endYear = endDate.getUTCFullYear();
-          const endMonth = endDate.getUTCMonth();
-          const endDay = endDate.getUTCDate();
-
-          // Set to fixed UTC times: start at 12:00 UTC, end at 22:00 UTC
-          finalStartDate = new Date(Date.UTC(startYear, startMonth, startDay, 12, 0, 0, 0));
-          finalEndDate = new Date(Date.UTC(endYear, endMonth, endDay, 22, 0, 0, 0));
-
-          // Ensure end is not before start (for same-day events)
-          if (finalEndDate < finalStartDate) {
-            finalEndDate = new Date(Date.UTC(startYear, startMonth, startDay, 22, 0, 0, 0));
-          }
-        } else {
-          // For timed events, ensure end is not before start
-          if (finalEndDate < finalStartDate) {
-            finalEndDate = finalStartDate;
-          }
-        }
-
-        // Determine status
+        const temporalData = temporalFieldsForPrisma(temporal);
         const status = row.status === 'PENDING' ? 'PENDING' : 'PUBLISHED';
 
-        // Determine timezone - null for all-day events, provided value or default for timed events
-        const timezone = isAllDay
-          ? null
-          : (row.timezone?.trim() || 'America/New_York');
-
-        // Upsert event (by title and start date as unique key)
         await prisma.event.upsert({
           where: {
             id: row.id || `seed-${i}`,
@@ -151,9 +116,7 @@ async function seedFromCSV(csvPath: string) {
             description: row.description || null,
             url: row.url || null,
             location: row.location || null,
-            start: finalStartDate,
-            end: finalEndDate,
-            timezone,
+            ...temporalData,
             source: row.source || null,
             status,
           },
@@ -162,20 +125,16 @@ async function seedFromCSV(csvPath: string) {
             description: row.description || null,
             url: row.url || null,
             location: row.location || null,
-            start: finalStartDate,
-            end: finalEndDate,
-            timezone,
+            ...temporalData,
             source: row.source || null,
             status,
           },
         });
-        
+
         successCount++;
-        if (isAllDay) {
-          console.log(`✅ Row ${i}: ${row.title} (all-day)`);
-        } else {
-          console.log(`✅ Row ${i}: ${row.title} (timed, ${timezone})`);
-        }
+        console.log(
+          `✅ Row ${i}: ${row.title} (${temporal.temporalKind}${temporal.timezone ? `, ${temporal.timezone}` : ''})`
+        );
       } catch (error: any) {
         console.error(`❌ Row ${i}: ${error.message}`);
         errorCount++;

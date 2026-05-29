@@ -11,6 +11,11 @@ import {
 } from './dedupe';
 import { parseLocationString } from './extractor/locationExtractor';
 import { extractTags, normalizeTags } from './extractor/tagExtractor';
+import {
+  fromCsvRow,
+  normalizeEventForWrite,
+  temporalFieldsForPrisma,
+} from './eventTemporal';
 
 export interface NormalizeEventsInput {
   events: ExtractedEvent[];
@@ -23,13 +28,6 @@ export interface NormalizeEventsResult {
   events: ExtractedEvent[];
   errors?: string[];
 }
-
-// Detect whether a date string appears to include a time component
-const hasTimeComponent = (value?: string | null): boolean => {
-  if (!value) return false;
-  // Rough checks: ISO with "T12:00" or human strings with "12:00"
-  return /T\d{1,2}:\d{2}/.test(value) || /\d{1,2}:\d{2}/.test(value);
-};
 
 /**
  * Normalize extracted events - validate dates, clean data
@@ -74,91 +72,30 @@ export async function normalize_events(
         continue;
       }
 
-      // Validate and normalize dates
-      let startDate: Date | null = null;
-      let endDate: Date | null = null;
-
-      const startHasTime = hasTimeComponent(event.start);
-      const endHasTime = hasTimeComponent(event.end);
-
-      // Helper to parse date string, handling both date-only (YYYY-MM-DD) and ISO formats
-      const parseDateString = (dateStr: string): Date => {
-        // If it's a date-only string (YYYY-MM-DD), parse explicitly as UTC
-        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-          const [year, month, day] = dateStr.split('-').map(Number);
-          return new Date(Date.UTC(year, month - 1, day));
-        }
-        // Otherwise, use standard Date parsing (handles ISO strings with times)
-        return new Date(dateStr);
-      };
-
-      if (event.start) {
-        startDate = parseDateString(event.start);
-        if (isNaN(startDate.getTime())) {
-          errors.push(`Invalid start date for "${event.title}": ${event.start}`);
-          continue;
-        }
-      }
-
-      if (event.end) {
-        endDate = parseDateString(event.end);
-        if (isNaN(endDate.getTime())) {
-          // Use start date if end is invalid
-          endDate = startDate;
-        }
-      } else if (startDate) {
-        endDate = startDate;
-      }
-
-      // If no dates, skip this event
-      if (!startDate || !endDate) {
+      if (!event.start) {
         errors.push(`Event "${event.title}" missing valid dates`);
         continue;
       }
 
-      // Determine if this is an all-day event (no time component in either start or end)
-      const isAllDay = !startHasTime && !endHasTime;
-
-      // For all-day events, use fixed UTC times to prevent timezone shifts
-      // Start: 12:00 UTC, End: 22:00 UTC on the same calendar days (inclusive)
-      if (isAllDay) {
-        // Extract UTC date components to preserve calendar day
-        const startYear = startDate.getUTCFullYear();
-        const startMonth = startDate.getUTCMonth();
-        const startDay = startDate.getUTCDate();
-        
-        const endYear = endDate.getUTCFullYear();
-        const endMonth = endDate.getUTCMonth();
-        const endDay = endDate.getUTCDate();
-
-        // Set to fixed UTC times: start at 12:00 UTC, end at 22:00 UTC
-        startDate = new Date(Date.UTC(startYear, startMonth, startDay, 12, 0, 0, 0));
-        endDate = new Date(Date.UTC(endYear, endMonth, endDay, 22, 0, 0, 0));
-
-        // Ensure end is not before start (for same-day events)
-        if (endDate < startDate) {
-          endDate = new Date(Date.UTC(startYear, startMonth, startDay, 22, 0, 0, 0));
-        }
-      } else {
-        // For timed events, ensure end is not before start
-        if (endDate < startDate) {
-          endDate = startDate;
-        }
-
-        // Normalize timed events: set to midnight if no time provided
-        if (!startHasTime) {
-          startDate.setHours(0, 0, 0, 0);
-        }
-        if (!endHasTime) {
-          endDate.setHours(23, 59, 59, 999);
-        }
+      let temporal;
+      try {
+        const input = fromCsvRow({
+          start: event.start,
+          end: event.end || event.start,
+          timezone: event.timezone || (defaultTimezone ? defaultTimezone : undefined),
+        });
+        temporal = normalizeEventForWrite({
+          ...input,
+          timezone:
+            input.temporalKind === 'TIMED'
+              ? event.timezone || defaultTimezone
+              : null,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`Invalid dates for "${event.title}": ${msg}`);
+        continue;
       }
-
-      // Only keep timezone for timed events (when time was captured or provided explicitly)
-      // All-day events should have timezone = null/undefined
-      const timezone = isAllDay
-        ? undefined
-        : (event.timezone || ((startHasTime || endHasTime) ? defaultTimezone : undefined));
 
       // Extract and normalize tags (pass tagKeywordMap if available)
       const extractedTags = extractTags(
@@ -188,9 +125,9 @@ export async function normalize_events(
       const normalizedEvent: ExtractedEvent = {
         ...event,
         title: event.title.trim(),
-        start: startDate.toISOString(),
-        end: endDate.toISOString(),
-        timezone,
+        start: temporal.start.toISOString(),
+        end: temporal.end.toISOString(),
+        timezone: temporal.timezone ?? undefined,
         location: event.location?.trim() || undefined,
         url: event.url?.trim() || undefined,
         description: event.description?.trim() || undefined,
@@ -239,13 +176,33 @@ export interface IngestScrapedEventsResult {
  */
 export async function ingestScrapedEvents(
   events: ExtractedEvent[],
-  options: { publish?: boolean } = {}
+  options: { publish?: boolean; hubSlug?: string; hostSlug?: string } = {}
 ): Promise<IngestScrapedEventsResult> {
   const publish = options.publish ?? false;
   let created = 0;
   let flaggedDuplicate = 0;
   let skipped = 0;
   let errors = 0;
+
+  let hubId: string | null = null;
+  let defaultHostId: string | null = null;
+  let hubSlugForTag: string | null = null;
+
+  if (options.hubSlug) {
+    const hub = await prisma.eventHub.findUnique({
+      where: { slug: options.hubSlug },
+    });
+    if (hub) {
+      hubId = hub.id;
+      hubSlugForTag = hub.slug;
+      if (options.hostSlug) {
+        const host = await prisma.hubHost.findUnique({
+          where: { hubId_slug: { hubId: hub.id, slug: options.hostSlug } },
+        });
+        defaultHostId = host?.id ?? null;
+      }
+    }
+  }
 
   for (const event of events) {
     try {
@@ -254,22 +211,50 @@ export async function ingestScrapedEvents(
         continue;
       }
 
-      const tagsJson =
+      let tagsJson =
         event.tags && event.tags.length > 0 ? JSON.stringify(event.tags) : null;
+
+      let hubHostId: string | null = defaultHostId;
+      let showOnMainCalendar = false;
+
+      if (hubId && hubSlugForTag) {
+        const { appendHubTag, applyHubEventDefaults, resolveHostForIngest } = await import(
+          '@/lib/hubs'
+        );
+        tagsJson = appendHubTag(tagsJson, hubSlugForTag);
+        if (!hubHostId && event.source) {
+          hubHostId = await resolveHostForIngest(hubId, event.source);
+        }
+        showOnMainCalendar = applyHubEventDefaults({ hubId }).showOnMainCalendar;
+      }
+
+      const temporalInput = fromCsvRow({
+        start: event.start,
+        end: event.end,
+        timezone: event.timezone,
+      });
+      const temporal = normalizeEventForWrite({
+        ...temporalInput,
+        timezone:
+          temporalInput.temporalKind === 'TIMED'
+            ? event.timezone || 'America/New_York'
+            : null,
+      });
 
       const baseData = {
         title: event.title,
         description: event.description || null,
         url: event.url || null,
         location: event.location || null,
-        start: new Date(event.start),
-        end: new Date(event.end),
-        timezone: event.timezone || null,
+        ...temporalFieldsForPrisma(temporal),
         source: event.source || null,
         tags: tagsJson,
         country: event.country || null,
         region: event.region || null,
         city: event.city || null,
+        hubId,
+        hubHostId,
+        showOnMainCalendar,
       };
 
       const match = await findCandidateMatch(event);
@@ -290,6 +275,7 @@ export async function ingestScrapedEvents(
         const candidateFp = computeCandidateRowFingerprint({
           title: event.title,
           start: event.start,
+          timezone: event.timezone,
           location: event.location,
           url: event.url,
           city: event.city,

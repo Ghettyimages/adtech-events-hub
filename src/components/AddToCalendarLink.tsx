@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useState } from 'react';
 import ical, { ICalCalendar } from 'ical-generator';
+import { addEventToICalCalendar } from '@/lib/icalEvent';
 
 interface AddToCalendarLinkProps {
   event: Event;
@@ -35,24 +36,7 @@ export default function AddToCalendarLink({
   const downloadICS = () => {
     const calendar: ICalCalendar = ical({ name: 'The Media Calendar' });
 
-    const isAllDay = true;
-    const endDate = new Date(event.end);
-    const endYear = endDate.getUTCFullYear();
-    const endMonth = endDate.getUTCMonth();
-    const endDay = endDate.getUTCDate();
-    const exclusiveEndDate = new Date(
-      Date.UTC(endYear, endMonth, endDay + 1, 12, 0, 0, 0)
-    );
-
-    calendar.createEvent({
-      start: new Date(event.start),
-      end: exclusiveEndDate,
-      summary: event.title,
-      description: event.description || undefined,
-      location: event.location || undefined,
-      url: event.url || undefined,
-      allDay: isAllDay,
-    });
+    addEventToICalCalendar(calendar, event);
 
     const icsContent = calendar.toString();
     const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });

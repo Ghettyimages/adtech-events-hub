@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'crypto';
 import type { Event as DbEvent } from '@prisma/client';
 import { prisma } from './db';
 import type { ExtractedEvent } from './extractor/schema';
+import { formatYmdUtc } from './eventTemporal';
 
 const TRACKING_PARAMS = new Set([
   'utm_source',
@@ -57,6 +58,7 @@ export function normalizeTitleForDedupe(text: string): string {
 export type DedupeParts = {
   title: string;
   start?: string | null;
+  timezone?: string | null;
   location?: string | null;
   url?: string | null;
   city?: string | null;
@@ -67,15 +69,19 @@ export type DedupeParts = {
 /**
  * Stable string used for hashing and for in-memory dedupe (must stay in sync).
  */
+function dedupeStartKey(start?: string | null, timezone?: string | null): string {
+  if (!start) return '';
+  const d = new Date(start);
+  if (isNaN(d.getTime())) return '';
+  if (timezone == null || String(timezone).trim() === '') {
+    return formatYmdUtc(d);
+  }
+  return d.toISOString();
+}
+
 export function dedupeBasisString(parts: DedupeParts): string {
   const title = normalizeTitleForDedupe(parts.title);
-  let startIso = '';
-  if (parts.start) {
-    const d = new Date(parts.start);
-    if (!isNaN(d.getTime())) {
-      startIso = d.toISOString();
-    }
-  }
+  const startIso = dedupeStartKey(parts.start, parts.timezone);
   let place = '';
   if (parts.city || parts.region || parts.country) {
     place = [parts.city, parts.region, parts.country]
@@ -104,6 +110,7 @@ export function fingerprintFromNormalizedEvent(event: ExtractedEvent): string {
   return computeDedupeFingerprint({
     title: event.title,
     start: event.start,
+    timezone: event.timezone,
     location: event.location,
     url: event.url,
     city: event.city,

@@ -16,6 +16,7 @@ import {
   startOfMonth,
 } from 'date-fns';
 import { formatEventForCalendar } from '@/lib/events';
+import { toCsvRow } from '@/lib/eventTemporal';
 import { getDisplayName } from '@/lib/tags';
 import EventCard from './EventCard';
 import EventList from './EventList';
@@ -331,20 +332,31 @@ export default function Calendar() {
       return;
     }
 
-    const headers = ['Title', 'Start', 'End', 'Location', 'Timezone', 'Source', 'URL', 'Description'];
+    const headers = [
+      'Title',
+      'Start',
+      'End',
+      'Location',
+      'Timezone',
+      'All Day',
+      'Temporal Kind',
+      'Source',
+      'URL',
+      'Description',
+    ];
 
     const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
 
     const rows = exportableEvents.map((event) => {
-      const start = new Date(event.start);
-      const end = new Date(event.end);
-
+      const temporal = toCsvRow(event);
       const cells = [
         event.title || '',
-        Number.isNaN(start.getTime()) ? '' : start.toISOString(),
-        Number.isNaN(end.getTime()) ? '' : end.toISOString(),
+        temporal.start,
+        temporal.end,
         event.location || '',
-        event.timezone || '',
+        temporal.timezone,
+        temporal.all_day,
+        temporal.temporal_kind,
         event.source || '',
         event.url || '',
         event.description || '',

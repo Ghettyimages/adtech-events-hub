@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import ical, { ICalCalendar } from 'ical-generator';
+import { addEventToICalCalendar } from '@/lib/icalEvent';
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,27 +19,8 @@ export async function GET(request: NextRequest) {
       url: process.env.SITE_URL || 'http://localhost:3000',
     });
 
-    // Add events to calendar - all events are treated as all-day events
     events.forEach((event) => {
-      // All events sync as all-day events
-      const isAllDay = true;
-      
-      // iCal uses exclusive end dates (day after last day)
-      const endDate = new Date(event.end);
-      const endYear = endDate.getUTCFullYear();
-      const endMonth = endDate.getUTCMonth();
-      const endDay = endDate.getUTCDate();
-      const exclusiveEndDate = new Date(Date.UTC(endYear, endMonth, endDay + 1, 12, 0, 0, 0));
-      
-      calendar.createEvent({
-        start: new Date(event.start),
-        end: exclusiveEndDate,
-        summary: event.title,
-        description: event.description || undefined,
-        location: event.location || undefined,
-        url: event.url || undefined,
-        allDay: isAllDay,
-      });
+      addEventToICalCalendar(calendar, event);
     });
 
     // Generate iCal string

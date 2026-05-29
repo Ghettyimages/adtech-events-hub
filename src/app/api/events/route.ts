@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { createEventSchema } from '@/lib/validation';
+import { mainCalendarEventWhere } from '@/lib/hubs';
+import { eventsListCacheHeaders } from '@/lib/api-cache';
+import { normalizeEventForWrite, temporalFieldsForPrisma } from '@/lib/eventTemporal';
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,11 +17,15 @@ export async function GET(request: NextRequest) {
     const city = searchParams.get('city');
     const source = searchParams.get('source');
     const sort = searchParams.get('sort') || 'date';
+    const includeHubEvents = searchParams.get('includeHubEvents') === 'true';
 
-    // Build where clause
-    const baseWhere: any = {
-      status: status || 'PUBLISHED',
-    };
+    const session = await auth();
+    const isAdmin = (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin === true;
+
+    const baseWhere: any =
+      includeHubEvents && isAdmin
+        ? { status: status || 'PUBLISHED' }
+        : mainCalendarEventWhere(status || 'PUBLISHED');
 
     // Text search: title, description, location (case-insensitive)
     if (q) {
@@ -87,9 +94,6 @@ export async function GET(request: NextRequest) {
         break;
     }
 
-    const session = await auth();
-    const isAdmin = (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin === true;
-
     const events = await prisma.event.findMany({
       where,
       orderBy,
@@ -104,11 +108,12 @@ export async function GET(request: NextRequest) {
         : {}),
     });
 
-    return NextResponse.json({ events }, {
-      headers: {
-        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
-      },
-    });
+    return NextResponse.json(
+      { events },
+      {
+        headers: eventsListCacheHeaders({ status, isAdmin }),
+      }
+    );
   } catch (error: any) {
     console.error('Error fetching events:', error);
     return NextResponse.json({ error: 'Failed to fetch events' }, { status: 500 });
@@ -128,17 +133,17 @@ export async function POST(request: NextRequest) {
     // Validate input
     const validatedData = createEventSchema.parse(body);
 
-    // Convert datetime-local strings to ISO format if needed
-    const startDate = new Date(validatedData.start);
-    const endDate = new Date(validatedData.end);
-
-    // Validate dates
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
-    }
-
-    if (endDate <= startDate) {
-      return NextResponse.json({ error: 'End date must be after start date' }, { status: 400 });
+    let temporal;
+    try {
+      temporal = normalizeEventForWrite({
+        temporalKind: validatedData.temporalKind,
+        start: validatedData.start,
+        end: validatedData.end,
+        timezone: validatedData.timezone,
+      });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Invalid date format';
+      return NextResponse.json({ error: message }, { status: 400 });
     }
 
     // Create event with PENDING status
@@ -148,9 +153,7 @@ export async function POST(request: NextRequest) {
         description: validatedData.description || null,
         url: validatedData.url || null,
         location: validatedData.location || null,
-        start: startDate,
-        end: endDate,
-        timezone: validatedData.timezone || null,
+        ...temporalFieldsForPrisma(temporal),
         source: validatedData.source || null,
         tags: validatedData.tags && validatedData.tags.length > 0 
           ? JSON.stringify(validatedData.tags) 

@@ -1,4 +1,16 @@
 import { z } from 'zod';
+import { TEMPORAL_KIND } from '@/lib/eventTemporal';
+
+const temporalKindSchema = z.enum([TEMPORAL_KIND.ALL_DAY, TEMPORAL_KIND.TIMED]).optional();
+
+const dateOrDateTimeString = z.string().refine(
+  (val) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(val.trim())) return true;
+    const date = new Date(val);
+    return !isNaN(date.getTime());
+  },
+  { message: 'Must be a valid date (YYYY-MM-DD) or datetime' }
+);
 
 export const createEventSchema = z.object({
   title: z.string().min(1, 'Title is required').max(200),
@@ -11,21 +23,9 @@ export const createEventSchema = z.object({
     z.null()
   ]).optional(),
   location: z.union([z.string().max(200), z.literal(''), z.null()]).optional(),
-  // Accept ISO datetime strings (can be generated from datetime-local inputs)
-  start: z.string().refine(
-    (val) => {
-      const date = new Date(val);
-      return !isNaN(date.getTime());
-    },
-    { message: 'Start must be a valid datetime' }
-  ),
-  end: z.string().refine(
-    (val) => {
-      const date = new Date(val);
-      return !isNaN(date.getTime());
-    },
-    { message: 'End must be a valid datetime' }
-  ),
+  temporalKind: temporalKindSchema,
+  start: dateOrDateTimeString,
+  end: dateOrDateTimeString,
   timezone: z.union([z.string().max(50), z.literal(''), z.null()]).optional(),
   source: z.union([z.string().max(100), z.literal(''), z.null()]).optional(),
   // NEW: tags and structured location fields
@@ -33,6 +33,9 @@ export const createEventSchema = z.object({
   country: z.union([z.string().max(100), z.literal(''), z.null()]).optional(),
   region: z.union([z.string().max(100), z.literal(''), z.null()]).optional(),
   city: z.union([z.string().max(100), z.literal(''), z.null()]).optional(),
+  hubId: z.union([z.string(), z.null()]).optional(),
+  hubHostId: z.union([z.string(), z.null()]).optional(),
+  showOnMainCalendar: z.boolean().optional(),
 });
 
 export const updateEventStatusSchema = z.object({

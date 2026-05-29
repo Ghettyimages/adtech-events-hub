@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Event } from '@prisma/client';
 import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
+import { isAllDayEvent } from '@/lib/eventTemporal';
 
 interface EventListProps {
   events: Event[];
@@ -47,8 +48,8 @@ function EventListContent({
             <div className="flex flex-col gap-2">
               <span className="font-medium text-gray-900 dark:text-gray-100">{event.title}</span>
               <span className="text-sm text-gray-700 dark:text-gray-300">
-                {formatDate(event.start, !event.timezone, false)}
-                {event.end && ` – ${formatDate(event.end, !event.timezone, true)}`}
+                {formatDate(event.start, isAllDayEvent(event), false)}
+                {event.end && ` – ${formatDate(event.end, isAllDayEvent(event), true)}`}
               </span>
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 {(event.city || event.region || event.country)
@@ -109,10 +110,10 @@ function EventListContent({
                   </div>
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                  {formatDate(event.start, !event.timezone, false)}
+                  {formatDate(event.start, isAllDayEvent(event), false)}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                  {formatDate(event.end, !event.timezone, true)}
+                  {formatDate(event.end, isAllDayEvent(event), true)}
                 </td>
                 <td className="px-4 py-4 whitespace-normal text-sm text-gray-700 dark:text-gray-300">
                   {(event.city || event.region || event.country) ? (

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import Papa from 'papaparse';
+import { toCsvRow } from '@/lib/eventTemporal';
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,21 +10,26 @@ export async function GET(request: NextRequest) {
     });
 
     // Convert to CSV format
-    const csvData = events.map(event => ({
-      title: event.title,
-      start: event.start.toISOString(),
-      end: event.end.toISOString(),
-      location: event.location || '',
-      url: event.url || '',
-      description: event.description || '',
-      timezone: event.timezone || 'America/New_York',
-      source: event.source || '',
-      status: event.status,
-      tags: event.tags || '',
-      country: event.country || '',
-      region: event.region || '',
-      city: event.city || '',
-    }));
+    const csvData = events.map((event) => {
+      const temporal = toCsvRow(event);
+      return {
+        title: event.title,
+        start: temporal.start,
+        end: temporal.end,
+        location: event.location || '',
+        url: event.url || '',
+        description: event.description || '',
+        timezone: temporal.timezone,
+        all_day: temporal.all_day,
+        temporal_kind: temporal.temporal_kind,
+        source: event.source || '',
+        status: event.status,
+        tags: event.tags || '',
+        country: event.country || '',
+        region: event.region || '',
+        city: event.city || '',
+      };
+    });
 
     const csv = Papa.unparse(csvData);
 

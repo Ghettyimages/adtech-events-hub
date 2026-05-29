@@ -9,6 +9,8 @@ import TagSelector from '@/components/TagSelector';
 import DuplicateReviewModal from '@/components/admin/DuplicateReviewModal';
 import { getDisplayName } from '@/lib/tags';
 import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
+import { isAllDayEvent, TEMPORAL_KIND, formatYmdUtc } from '@/lib/eventTemporal';
+import { DateTime } from 'luxon';
 
 /**
  * Formats a date for display, handling all-day events correctly
@@ -91,6 +93,20 @@ export default function AdminPage() {
   const [monitoredUrls, setMonitoredUrls] = useState<MonitoredUrl[]>([]);
   const [extractedEvents, setExtractedEvents] = useState<any[]>([]);
   const [extractionMethod, setExtractionMethod] = useState<string | null>(null);
+
+  const getExtractionMethodLabel = (method?: string | null): string => {
+    switch (method) {
+      case 'firecrawl-agent':
+        return 'Firecrawl + Agent';
+      case 'firecrawl':
+        return 'Firecrawl';
+      case 'generic':
+        return 'Generic scraper';
+      case 'agent':
+      default:
+        return 'Agent';
+    }
+  };
 
   // CSV upload state
   const [csvUploading, setCsvUploading] = useState(false);
@@ -178,7 +194,7 @@ export default function AdminPage() {
   const fetchTags = async () => {
     setTagsLoading(true);
     try {
-      const res = await fetch(`/api/tags?sort=${sortBy}`);
+      const res = await fetch(`/api/tags?sort=${sortBy}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch tags');
       const data = await res.json();
       setTags(data.tags || []);
@@ -402,7 +418,8 @@ export default function AdminPage() {
     try {
       setEventsLoading(true);
       const params = buildEventsQueryParams('PENDING');
-      const res = await fetch(`/api/events?${params.toString()}`);
+      params.set('_', Date.now().toString());
+      const res = await fetch(`/api/events?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch pending events');
       const data = await res.json();
       setPendingEvents(data.events);
@@ -418,7 +435,8 @@ export default function AdminPage() {
     try {
       setEventsLoading(true);
       const params = buildEventsQueryParams('PUBLISHED');
-      const res = await fetch(`/api/events?${params.toString()}`);
+      params.set('_', Date.now().toString());
+      const res = await fetch(`/api/events?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch published events');
       const data = await res.json();
       setPublishedEvents(data.events);
@@ -546,9 +564,9 @@ export default function AdminPage() {
         `✅ CSV uploaded successfully! ${result.stats.success} events processed, ${result.stats.errors} errors.`
       );
 
-      // Refresh events list
-      fetchPendingEvents();
-      fetchPublishedEvents();
+      await fetch('/api/revalidate', { method: 'POST' });
+      await fetchPendingEvents();
+      await fetchPublishedEvents();
 
       // Clear file input
       event.target.value = '';
@@ -585,7 +603,7 @@ export default function AdminPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to scrape URL');
 
       const resultParts = [
-        `✅ Scraped successfully using ${data.extractionMethod || 'agent'} method`,
+        `✅ Scraped successfully using ${getExtractionMethodLabel(data.extractionMethod)} method`,
         `Found ${data.eventsFound || 0} events`,
         data.eventsAdded ? `Added ${data.eventsAdded} new events (pending approval)` : '',
         data.eventsFlaggedDuplicate ? `${data.eventsFlaggedDuplicate} potential duplicates sent to review queue` : '',
@@ -602,7 +620,11 @@ export default function AdminPage() {
       setScrapeName('');
       setEnableMonitoring(false);
       setFeedback('success', 'URL scraped successfully!');
-      await fetchPendingEvents(); // Refresh pending events list
+      await fetch('/api/revalidate', { method: 'POST' });
+      await fetchPendingEvents();
+      if (adminTab === 'events') {
+        await fetchPublishedEvents();
+      }
     } catch (err: any) {
       setFeedback('error', err.message || 'Failed to scrape URL');
       setExtractedEvents([]);
@@ -669,8 +691,7 @@ export default function AdminPage() {
     }
     setEditSelectedTags(tagsArray);
     
-    // Determine if event is all-day: no timezone means all-day, or default to true for pending events
-    const eventIsAllDay = event.timezone === null || event.timezone === '' || event.status === 'PENDING';
+    const eventIsAllDay = isAllDayEvent(event);
     setIsAllDay(eventIsAllDay);
     
     // Format dates based on all-day status
@@ -681,36 +702,24 @@ export default function AdminPage() {
     let endFormatted: string;
     
     if (eventIsAllDay) {
-      // For all-day events, extract UTC date components to avoid timezone shifts
-      // All-day events are stored with fixed UTC times (start: 12:00 UTC, end: 22:00 UTC) on inclusive calendar days
-      const startYear = startDate.getUTCFullYear();
-      const startMonth = startDate.getUTCMonth();
-      const startDay = startDate.getUTCDate();
-      
-      const endYear = endDate.getUTCFullYear();
-      const endMonth = endDate.getUTCMonth();
-      const endDay = endDate.getUTCDate();
-      
-      // Format as YYYY-MM-DD using UTC components (inclusive end date, no adjustment needed)
-      const startUTC = new Date(Date.UTC(startYear, startMonth, startDay));
-      const endUTC = new Date(Date.UTC(endYear, endMonth, endDay));
-      startFormatted = startUTC.toISOString().slice(0, 10);
-      endFormatted = endUTC.toISOString().slice(0, 10);
+      const startYmd =
+        event.allDayStartDate != null
+          ? formatYmdUtc(new Date(event.allDayStartDate))
+          : formatYmdUtc(startDate);
+      const endYmd =
+        event.allDayEndDate != null
+          ? formatYmdUtc(new Date(event.allDayEndDate))
+          : formatYmdUtc(endDate);
+      startFormatted = startYmd;
+      endFormatted = endYmd;
     } else {
-      // For timed events, use datetime-local format (YYYY-MM-DDTHH:mm)
-      // Convert UTC to local time for the input
-      // datetime-local inputs expect local time, so we format using local time methods
-      const formatLocalDateTime = (date: Date): string => {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        return `${year}-${month}-${day}T${hours}:${minutes}`;
-      };
-      
-      startFormatted = formatLocalDateTime(startDate);
-      endFormatted = formatLocalDateTime(endDate);
+      const zone = event.timezone?.trim() || 'America/New_York';
+      startFormatted = DateTime.fromJSDate(startDate, { zone: 'utc' })
+        .setZone(zone)
+        .toFormat("yyyy-MM-dd'T'HH:mm");
+      endFormatted = DateTime.fromJSDate(endDate, { zone: 'utc' })
+        .setZone(zone)
+        .toFormat("yyyy-MM-dd'T'HH:mm");
     }
     
     setEditFormData({
@@ -790,69 +799,18 @@ export default function AdminPage() {
         updateData.tags = null;
       }
 
-      // Handle dates - convert based on all-day status
-      // For all-day events: date-only format "YYYY-MM-DD" -> start of day / end of day
-      // For timed events: datetime-local format "YYYY-MM-DDTHH:mm" -> ISO with time
-      const convertToISO = (dateValue: string, isStart: boolean): string => {
-        if (!dateValue || !dateValue.trim()) {
-          throw new Error(`${isStart ? 'Start' : 'End'} date is required`);
-        }
-        
-        if (isAllDay) {
-          // For all-day events, date-only format: "YYYY-MM-DD"
-          // Store with fixed UTC times: start at 12:00 UTC, end at 22:00 UTC on inclusive calendar days
-          // This ensures the date displays correctly regardless of user's timezone
-          const [year, month, day] = dateValue.split('-').map(Number);
-          
-          if (isStart) {
-            // Start: Store at 12:00 UTC on the selected date
-            const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
-            return date.toISOString();
-          } else {
-            // End: Store at 22:00 UTC on the selected date (inclusive end date)
-            const date = new Date(Date.UTC(year, month - 1, day, 22, 0, 0, 0));
-            return date.toISOString();
-          }
-        } else {
-          // For timed events, datetime-local format: "YYYY-MM-DDTHH:mm"
-          // JavaScript Date constructor interprets this as local time
-          const date = new Date(dateValue);
-          if (isNaN(date.getTime())) {
-            throw new Error('Invalid date/time format');
-          }
-          // Return ISO string (this will include timezone offset)
-          return date.toISOString();
-        }
-      };
+      if (!editFormData.start?.trim() || !editFormData.end?.trim()) {
+        throw new Error('Start and end dates are required');
+      }
 
-      if (editFormData.start !== undefined && editFormData.start !== null && editFormData.start !== '') {
-        updateData.start = convertToISO(editFormData.start, true);
-      } else {
-        throw new Error('Start date is required');
-      }
-      
-      if (editFormData.end !== undefined && editFormData.end !== null && editFormData.end !== '') {
-        updateData.end = convertToISO(editFormData.end, false);
-      } else {
-        throw new Error('End date is required');
-      }
-      
-      // Set timezone to null for all-day events, otherwise use the provided timezone
-      if (isAllDay) {
-        updateData.timezone = null;
-      } else if (editFormData.timezone !== undefined) {
-        const trimmed = editFormData.timezone?.trim();
-        updateData.timezone = trimmed && trimmed.length > 0 ? trimmed : null;
-      }
-      
-      // Validate that end is after start
-      if (updateData.start && updateData.end) {
-        const start = new Date(updateData.start);
-        const end = new Date(updateData.end);
-        if (end <= start) {
-          throw new Error('End date must be after start date');
-        }
-      }
+      updateData.temporalKind = isAllDay ? TEMPORAL_KIND.ALL_DAY : TEMPORAL_KIND.TIMED;
+      updateData.start = isAllDay
+        ? editFormData.start.split('T')[0]
+        : editFormData.start;
+      updateData.end = isAllDay ? editFormData.end.split('T')[0] : editFormData.end;
+      updateData.timezone = isAllDay
+        ? null
+        : editFormData.timezone?.trim() || 'America/New_York';
 
       // If approving, set status to PUBLISHED
       if (andApprove) {
@@ -1180,7 +1138,7 @@ export default function AdminPage() {
             </h2>
             {extractionMethod && (
               <span className="text-sm px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
-                Method: {extractionMethod}
+                Method: {getExtractionMethodLabel(extractionMethod)}
               </span>
             )}
           </div>
@@ -1199,7 +1157,7 @@ export default function AdminPage() {
                       {event.start && (
                         <div>
                           <strong>Start:</strong>{' '}
-                          {formatEventDate(event.start, !event.timezone, false)}
+                          {formatEventDate(event.start, isAllDayEvent(event), false)}
                           {event.date_status && (
                             <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
                               event.date_status === 'confirmed'
@@ -1213,7 +1171,7 @@ export default function AdminPage() {
                       )}
                       {event.end && (
                         <div>
-                          <strong>End:</strong> {formatEventDate(event.end, !event.timezone, true)}
+                          <strong>End:</strong> {formatEventDate(event.end, isAllDayEvent(event), true)}
                         </div>
                       )}
                       {event.location && (
@@ -1574,10 +1532,10 @@ export default function AdminPage() {
                               </div>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                              {formatEventDate(event.start, !event.timezone, false)}
+                              {formatEventDate(event.start, isAllDayEvent(event), false)}
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                              {formatEventDate(event.end, !event.timezone, true)}
+                              {formatEventDate(event.end, isAllDayEvent(event), true)}
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                               {event.location || '—'}
@@ -1694,10 +1652,10 @@ export default function AdminPage() {
                       </div>
                       <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
                         <p>
-                          <strong>Start:</strong> {formatEventDate(event.start, !event.timezone, false)}
+                          <strong>Start:</strong> {formatEventDate(event.start, isAllDayEvent(event), false)}
                         </p>
                         <p>
-                          <strong>End:</strong> {formatEventDate(event.end, !event.timezone, true)}
+                          <strong>End:</strong> {formatEventDate(event.end, isAllDayEvent(event), true)}
                         </p>
                         {event.location && (
                           <p>

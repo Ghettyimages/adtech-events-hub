@@ -29,6 +29,9 @@ export default function MobileNav() {
         </Link>
         {/* Desktop nav - unchanged */}
         <div className="hidden md:flex gap-4 items-center">
+          <Link href="/hubs" className="text-white hover:underline text-sm font-medium">
+            Festival Hubs
+          </Link>
           <Link
             href="/submit"
             className="bg-white text-tmc-navy px-4 py-2 rounded-lg font-semibold hover:bg-slate-50 transition"
@@ -76,6 +79,13 @@ export default function MobileNav() {
               </button>
             </div>
             <div className="flex flex-col p-4 gap-1 overflow-y-auto">
+              <Link
+                href="/hubs"
+                onClick={closeDrawer}
+                className="min-h-[44px] flex items-center px-4 text-white hover:bg-white/10 rounded-lg transition"
+              >
+                Festival Hubs
+              </Link>
               <Link
                 href="/submit"
                 onClick={closeDrawer}

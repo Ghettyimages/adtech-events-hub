@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import Link from 'next/link';
 import CalendarInstructions from '@/components/CalendarInstructions';
 import { buildGoogleCalendarSubscribeUrl } from '@/lib/events';
+import { getFilterDescription, parseFilter } from '@/lib/filters';
 
 interface Subscription {
   id: string;
@@ -78,6 +79,7 @@ function SubscriptionsPageContent() {
   
   // Filter subscriptions state
   const [filterSubscriptions, setFilterSubscriptions] = useState<FilterSubscription[]>([]);
+  const [hubSubscriptions, setHubSubscriptions] = useState<FilterSubscription[]>([]);
   const [deletingFilterId, setDeletingFilterId] = useState<string | null>(null);
   
   // Modal state for unfollow exclusion choice
@@ -170,23 +172,32 @@ function SubscriptionsPageContent() {
         
         // Separate filter subscriptions from other subscriptions
         const filters: FilterSubscription[] = [];
+        const hubs: FilterSubscription[] = [];
         const others: Subscription[] = [];
         
         for (const sub of allSubscriptions) {
           if (sub.kind === 'CUSTOM' && sub.filter) {
             try {
-              const filterObj = JSON.parse(sub.filter);
-              const parts: string[] = [];
-              if (filterObj.tags?.length > 0) parts.push(`Tags: ${filterObj.tags.join(', ')}`);
-              if (filterObj.country) parts.push(`Country: ${filterObj.country}`);
-              if (filterObj.region) parts.push(`Region: ${filterObj.region}`);
-              if (filterObj.city) parts.push(`City: ${filterObj.city}`);
-              if (filterObj.source) parts.push(`Source: ${filterObj.source}`);
-              
+              const filterObj = parseFilter(sub.filter);
               filters.push({
                 ...sub,
                 filter: sub.filter,
-                filterDescription: parts.length > 0 ? parts.join(' • ') : 'All events',
+                filterDescription: filterObj
+                  ? getFilterDescription(filterObj)
+                  : 'All events',
+              });
+            } catch {
+              others.push(sub);
+            }
+          } else if (sub.kind === 'HUB' && sub.filter) {
+            try {
+              const filterObj = parseFilter(sub.filter);
+              hubs.push({
+                ...sub,
+                filter: sub.filter,
+                filterDescription: filterObj
+                  ? getFilterDescription(filterObj)
+                  : 'Festival hub',
               });
             } catch {
               others.push(sub);
@@ -198,6 +209,7 @@ function SubscriptionsPageContent() {
         
         setSubscriptions(others);
         setFilterSubscriptions(filters);
+        setHubSubscriptions(hubs);
         setEventFollows(data.eventFollows || []);
         setFeedToken(data.feedToken);
       } else {
@@ -495,6 +507,7 @@ function SubscriptionsPageContent() {
 
       if (response.ok) {
         setFilterSubscriptions(filterSubscriptions.filter((f) => f.id !== subscriptionId));
+        setHubSubscriptions(hubSubscriptions.filter((f) => f.id !== subscriptionId));
         setDeleteFilterModal(null);
         // Refresh event follows in case some were removed
         fetchSubscriptions();
@@ -1011,6 +1024,70 @@ function SubscriptionsPageContent() {
               </div>
             )}
           </div>
+
+          {/* Hub Subscriptions Section */}
+          {hubSubscriptions.length > 0 && feedToken && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                Festival Hub Subscriptions ({hubSubscriptions.length})
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Separate iCal feeds for festival side events (not included in the main calendar).
+              </p>
+              <div className="space-y-3">
+                {hubSubscriptions.map((hubSub) => {
+                  let hubSlug = 'cannes-2026';
+                  try {
+                    const f = parseFilter(hubSub.filter);
+                    if (f?.hubSlug) hubSlug = f.hubSlug;
+                  } catch {
+                    /* ignore */
+                  }
+                  const hubFeedUrl =
+                    typeof window !== 'undefined'
+                      ? `${window.location.origin}/api/feed/hub?token=${feedToken}&hub=${hubSlug}`
+                      : '';
+                  return (
+                    <div
+                      key={hubSub.id}
+                      className="p-4 border border-amber-200 dark:border-amber-700 rounded-lg bg-amber-50 dark:bg-amber-900/20"
+                    >
+                      <div className="flex items-center justify-between gap-4 flex-wrap">
+                        <div>
+                          <h4 className="font-semibold text-gray-900 dark:text-white text-sm">
+                            {hubSub.filterDescription}
+                          </h4>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                            Created {format(new Date(hubSub.createdAt), 'PP')}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteFilterSubscription(hubSub.id)}
+                          disabled={deletingFilterId === hubSub.id}
+                          className="px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50 min-h-[44px]"
+                        >
+                          {deletingFilterId === hubSub.id ? 'Deleting...' : 'Delete'}
+                        </button>
+                      </div>
+                      {hubFeedUrl && (
+                        <div className="mt-3">
+                          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                            Hub iCal feed URL
+                          </label>
+                          <input
+                            type="text"
+                            value={hubFeedUrl}
+                            readOnly
+                            className="w-full mt-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-xs font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Filter Subscriptions Section */}
           {filterSubscriptions.length > 0 && (

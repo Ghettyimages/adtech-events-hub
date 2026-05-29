@@ -1,5 +1,7 @@
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { toGoogleCalendarPayload } from '@/lib/eventTemporal';
+import type { Event } from '@prisma/client';
 
 export interface GoogleCalendarEvent {
   id?: string;
@@ -7,10 +9,14 @@ export interface GoogleCalendarEvent {
   description?: string;
   location?: string;
   start: {
-    date: string;  // All-day event format: YYYY-MM-DD
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
   };
   end: {
-    date: string;  // All-day event format: YYYY-MM-DD (exclusive)
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
   };
   iCalUID?: string;
   source?: {
@@ -232,48 +238,31 @@ export async function deleteEventFromGoogleCalendar(
 }
 
 /**
- * Format a Date as YYYY-MM-DD for Google Calendar all-day events
- * Uses UTC date components to avoid timezone shifts
+ * Convert our Event model to Google Calendar API event format.
+ * ALL_DAY uses date fields; TIMED uses dateTime + timeZone.
  */
-function formatDateForGoogleCalendar(date: Date): string {
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-/**
- * Convert our Event model to Google Calendar event format
- * All events are created as all-day events using the date field (not dateTime)
- */
-export function convertEventToGoogleCalendar(event: {
-  id: string;
-  title: string;
-  description?: string | null;
-  location?: string | null;
-  start: Date | string;
-  end: Date | string;
-  timezone?: string | null;
-  url?: string | null;
-}): GoogleCalendarEvent {
-  const startDate = typeof event.start === 'string' ? new Date(event.start) : event.start;
-  const endDate = typeof event.end === 'string' ? new Date(event.end) : event.end;
-
-  // Calculate exclusive end date (Google Calendar all-day events use exclusive end dates)
-  // Add 1 day to the end date
-  const exclusiveEndDate = new Date(endDate);
-  exclusiveEndDate.setUTCDate(exclusiveEndDate.getUTCDate() + 1);
+export function convertEventToGoogleCalendar(event: Pick<
+  Event,
+  | 'id'
+  | 'title'
+  | 'description'
+  | 'location'
+  | 'start'
+  | 'end'
+  | 'timezone'
+  | 'url'
+  | 'temporalKind'
+  | 'allDayStartDate'
+  | 'allDayEndDate'
+>): GoogleCalendarEvent {
+  const payload = toGoogleCalendarPayload(event);
 
   return {
     summary: event.title,
     description: event.description || undefined,
     location: event.location || undefined,
-    start: {
-      date: formatDateForGoogleCalendar(startDate),
-    },
-    end: {
-      date: formatDateForGoogleCalendar(exclusiveEndDate),
-    },
+    start: payload.start,
+    end: payload.end,
     iCalUID: generateEventICalUID(event.id),
     source: event.url
       ? {

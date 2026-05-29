@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CreateEventInput } from '@/lib/validation';
+import { TEMPORAL_KIND } from '@/lib/eventTemporal';
 import { parseLocationString } from '@/lib/extractor/locationExtractor';
 import TagSelector from './TagSelector';
 
@@ -149,40 +150,16 @@ export default function SubmitEventForm() {
         throw new Error('Please select at least one tag');
       }
 
-      // Convert date or datetime to ISO datetime format
-      // For all-day events: date-only format "2025-01-15" -> start of day / end of day
-      // For timed events: datetime-local format "2025-01-15T10:00" -> ISO with time
-      const convertToISO = (dateValue: string, isStart: boolean): string => {
-        if (!dateValue || !dateValue.trim()) {
-          throw new Error(`${isStart ? 'Start' : 'End'} date is required`);
-        }
-        
-        if (isAllDay) {
-          // For all-day events, date-only format: "YYYY-MM-DD"
-          // Store at UTC noon to avoid timezone boundary issues
-          // This ensures the date displays correctly regardless of user's timezone
-          const [year, month, day] = dateValue.split('-').map(Number);
-          
-          if (isStart) {
-            // Start: Store at UTC noon on the selected date
-            const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
-            return date.toISOString();
-          } else {
-            // End: Store at 22:00 UTC on the selected date (inclusive end date, matches admin/CSV/tools)
-            const date = new Date(Date.UTC(year, month - 1, day, 22, 0, 0, 0));
-            return date.toISOString();
-          }
-        } else {
-          // For timed events, datetime-local format: "YYYY-MM-DDTHH:mm"
-          // JavaScript Date constructor interprets this as local time
-          const date = new Date(dateValue);
-          if (isNaN(date.getTime())) {
-            throw new Error('Invalid date/time format');
-          }
-          // Return ISO string (this will include timezone offset)
-          return date.toISOString();
-        }
-      };
+      const startValue = isAllDay
+        ? (formData.start.split('T')[0] || formData.start)
+        : formData.start;
+      const endValue = isAllDay
+        ? (formData.end.split('T')[0] || formData.end)
+        : formData.end;
+
+      if (!startValue?.trim() || !endValue?.trim()) {
+        throw new Error('Start and end dates are required');
+      }
 
       // Helper to convert empty strings to null for optional fields
       const nullIfEmpty = (value: string | null | undefined): string | null => {
@@ -196,8 +173,9 @@ export default function SubmitEventForm() {
         description: nullIfEmpty(formData.description),
         url: nullIfEmpty(formData.url),
         location: nullIfEmpty(formData.location),
-        start: convertToISO(formData.start, true),
-        end: convertToISO(formData.end, false),
+        temporalKind: isAllDay ? TEMPORAL_KIND.ALL_DAY : TEMPORAL_KIND.TIMED,
+        start: startValue,
+        end: endValue,
         timezone: isAllDay ? null : (nullIfEmpty(formData.timezone) || 'America/New_York'),
         source: nullIfEmpty(formData.source),
         tags: selectedTags.length > 0 ? selectedTags : null,

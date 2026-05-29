@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { updateEventSchema, updateEventStatusSchema } from '@/lib/validation';
-import { processFilterSubscriptionsForEvent } from '@/lib/filters';
+import { processAllFilterSubscriptionsForEvent } from '@/lib/filters-server';
+import { mergeAndNormalizeTemporal, temporalFieldsForPrisma } from '@/lib/eventTemporal';
 
 export async function GET(
   request: NextRequest,
@@ -73,7 +74,7 @@ export async function PATCH(
 
         // If this is a new publish (not already published), process filter subscriptions
         if (!wasPublished) {
-          await processFilterSubscriptionsForEvent(event.id, event);
+          await processAllFilterSubscriptionsForEvent(event.id, event);
         }
       }
 
@@ -116,11 +117,11 @@ export async function PATCH(
         ? null 
         : validatedData.location;
     }
-    if (validatedData.timezone !== undefined) {
-      updateData.timezone = validatedData.timezone === null || validatedData.timezone === '' 
-        ? null 
-        : validatedData.timezone;
-    }
+    const temporalInputTouched =
+      validatedData.start !== undefined ||
+      validatedData.end !== undefined ||
+      validatedData.timezone !== undefined ||
+      validatedData.temporalKind !== undefined;
     if (validatedData.source !== undefined) {
       updateData.source = validatedData.source === null || validatedData.source === '' 
         ? null 
@@ -152,35 +153,30 @@ export async function PATCH(
       }
     }
 
-    // Handle date updates
-    if (validatedData.start !== undefined) {
-      const startDate = new Date(validatedData.start);
-      if (isNaN(startDate.getTime())) {
-        return NextResponse.json({ error: 'Invalid start date format' }, { status: 400 });
-      }
-      updateData.start = startDate;
-    }
-
-    if (validatedData.end !== undefined) {
-      const endDate = new Date(validatedData.end);
-      if (isNaN(endDate.getTime())) {
-        return NextResponse.json({ error: 'Invalid end date format' }, { status: 400 });
-      }
-      updateData.end = endDate;
-    }
-
-    // Validate date order if both dates are being updated
-    if (updateData.start && updateData.end && updateData.end <= updateData.start) {
-      return NextResponse.json({ error: 'End date must be after start date' }, { status: 400 });
-    }
-
-    // If only one date is updated, validate against existing date
     const existingEvent = await prisma.event.findUnique({ where: { id } });
-    if (existingEvent) {
-      const finalStart = updateData.start || existingEvent.start;
-      const finalEnd = updateData.end || existingEvent.end;
-      if (finalEnd <= finalStart) {
-        return NextResponse.json({ error: 'End date must be after start date' }, { status: 400 });
+    if (!existingEvent) {
+      return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+    }
+
+    if (temporalInputTouched) {
+      try {
+        Object.assign(
+          updateData,
+          temporalFieldsForPrisma(
+            mergeAndNormalizeTemporal(
+              {
+                temporalKind: validatedData.temporalKind,
+                start: validatedData.start,
+                end: validatedData.end,
+                timezone: validatedData.timezone,
+              },
+              existingEvent
+            )
+          )
+        );
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Invalid date format';
+        return NextResponse.json({ error: message }, { status: 400 });
       }
     }
 
@@ -209,7 +205,7 @@ export async function PATCH(
 
       // If this is a new publish (not already published), process filter subscriptions
       if (!wasPublished && willBePublished) {
-        await processFilterSubscriptionsForEvent(event.id, event);
+        await processAllFilterSubscriptionsForEvent(event.id, event);
       }
     }
 

@@ -45,6 +45,8 @@ export async function POST(request: NextRequest) {
       action,
       enableMonitoring,
       skipPastEvents = true,
+      hubSlug,
+      hostSlug,
     } = body;
 
     if (!url) {
@@ -256,6 +258,8 @@ export async function POST(request: NextRequest) {
 
     const ingestResult = await ingestScrapedEvents(filteredEvents, {
       publish: false,
+      hubSlug: hubSlug || undefined,
+      hostSlug: hostSlug || undefined,
     });
 
     const successCount = ingestResult.created || 0;

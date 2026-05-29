@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import Calendar from '@/components/Calendar';
 import HomePageActions from '@/components/HomePageActions';
+import HubPromoBanner from '@/components/hubs/HubPromoBanner';
 
 function CalendarFallback() {
   return (
@@ -24,6 +25,8 @@ export default function HomePage() {
         </p>
         <HomePageActions siteUrl={siteUrl} />
       </div>
+
+      <HubPromoBanner />
 
       <Suspense fallback={<CalendarFallback />}>
         <Calendar />

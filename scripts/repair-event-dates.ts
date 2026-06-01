@@ -8,7 +8,7 @@
  *   npx tsx scripts/repair-event-dates.ts --out=reports/repair-log.json
  */
 
-import 'dotenv/config';
+import './load-env';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { PrismaClient } from '@prisma/client';
@@ -112,6 +112,7 @@ async function main() {
   const log: RepairLogEntry[] = [];
   let appliedCount = 0;
   let skippedCount = 0;
+  let repairedPublishedCount = 0;
 
   for (const event of events) {
     if (idFilter && !idFilter.has(event.id)) continue;
@@ -164,10 +165,12 @@ async function main() {
         data: {
           ...temporal,
           dateRepairedAt: new Date(),
-          gcalSyncPending: event.status === 'PUBLISHED' ? true : undefined,
         },
       });
       appliedCount++;
+      if (event.status === 'PUBLISHED') {
+        repairedPublishedCount++;
+      }
     }
 
     log.push({
@@ -181,6 +184,16 @@ async function main() {
 
     console.log(
       `${apply ? 'REPAIRED' : 'WOULD REPAIR'} [${projected.repairBucket}] ${event.id} ${event.title}`
+    );
+  }
+
+  if (apply && repairedPublishedCount > 0) {
+    const { count } = await prisma.user.updateMany({
+      where: { gcalSyncEnabled: true },
+      data: { gcalSyncPending: true },
+    });
+    console.log(
+      `Marked ${count} Google Calendar user(s) for sync (after ${repairedPublishedCount} published event repair(s)).`
     );
   }
 

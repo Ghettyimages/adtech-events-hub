@@ -7,7 +7,7 @@
  *   npx tsx scripts/audit-event-dates.ts --format=csv --out=reports/event-date-audit.csv
  */
 
-import 'dotenv/config';
+import './load-env';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { PrismaClient } from '@prisma/client';

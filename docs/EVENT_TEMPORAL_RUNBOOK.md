@@ -74,7 +74,7 @@ Target: `needs_storage_repair` ≈ 0.
 
 ### 8. Google Calendar sync
 
-Repairs set `gcalSyncPending` on published events. Users with connected calendars should use **Sync now**, or run your existing GCal sync job so:
+Repairs mark all `gcalSyncEnabled` users with `gcalSyncPending` when at least one published event was repaired. Users with connected calendars should use **Sync now**, or run your existing GCal sync job so:
 
 - ALL_DAY events use civil `date` fields
 - TIMED events use `dateTime` + `timeZone`

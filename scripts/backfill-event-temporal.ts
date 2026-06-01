@@ -7,7 +7,7 @@
  *   npx tsx scripts/backfill-event-temporal.ts --apply
  */
 
-import 'dotenv/config';
+import './load-env';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {

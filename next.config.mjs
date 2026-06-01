@@ -1,3 +1,42 @@
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * In local dev, Windows user-level env vars can shadow .env.local (e.g. a revoked
+ * OPENAI_API_KEY). Prefer values from .env.local for API keys used by scraping/LLM.
+ */
+function applyEnvLocalApiKeyOverrides() {
+  const envLocalPath = join(__dirname, '.env.local');
+  if (!existsSync(envLocalPath)) return;
+
+  const keysToOverride = new Set(['OPENAI_API_KEY', 'FIRECRAWL_API_KEY', 'LLM_API_KEY']);
+  const content = readFileSync(envLocalPath, 'utf8');
+
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+
+    const key = trimmed.slice(0, eq).trim();
+    if (!keysToOverride.has(key)) continue;
+
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (value) process.env[key] = value;
+  }
+}
+
+applyEnvLocalApiKeyOverrides();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {

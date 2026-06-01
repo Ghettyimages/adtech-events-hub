@@ -1435,12 +1435,28 @@ const verifyWithContext = (
       next.date_status = 'confirmed';
     }
   } else if (!useRefinedSnippet) {
-    // Only clear dates if we're not using refined snippet (which already has dates)
-    next.start = undefined;
-    next.end = undefined;
-    next.date_status = 'tbd';
-    next.evidence = undefined;
-    next.evidence_context = undefined;
+    if (event.start) {
+      // HTML date verification inconclusive — keep agent dates so ingest/normalize can proceed
+      next.start = event.start;
+      next.end = event.end ?? event.start;
+      next.date_status = 'tbd';
+      next.evidence = event.evidence;
+      next.evidence_context = event.evidence_context ?? 'agent';
+      // eslint-disable-next-line no-console
+      console.log(
+        '[extractor] Preserving agent dates (HTML unconfirmed)',
+        event.title,
+        next.start,
+        '→',
+        next.end
+      );
+    } else {
+      next.start = undefined;
+      next.end = undefined;
+      next.date_status = 'tbd';
+      next.evidence = undefined;
+      next.evidence_context = undefined;
+    }
   }
 
   // Apply location info from strict extractor or verified LLM extraction

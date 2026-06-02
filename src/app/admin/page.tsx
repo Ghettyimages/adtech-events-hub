@@ -171,6 +171,27 @@ export default function AdminPage() {
   const [csvUploadResult, setCsvUploadResult] = useState<any>(null);
   const [publishImmediately, setPublishImmediately] = useState(false);
 
+  // Import host schedule (paste → parse → hub pending)
+  interface SchedulePreviewRow {
+    title: string;
+    description?: string | null;
+    location?: string | null;
+    start: string;
+    end: string;
+    timezone?: string;
+    tags?: string[];
+    included: boolean;
+  }
+  const [scheduleRawText, setScheduleRawText] = useState('');
+  const [scheduleHub, setScheduleHub] = useState<HubAssignValue>(EMPTY_HUB_ASSIGN);
+  const [scheduleDefaultTz, setScheduleDefaultTz] = useState('Europe/Paris');
+  const [scheduleSourceUrl, setScheduleSourceUrl] = useState('');
+  const [scheduleSkipUmbrella, setScheduleSkipUmbrella] = useState(true);
+  const [scheduleParsing, setScheduleParsing] = useState(false);
+  const [scheduleIngesting, setScheduleIngesting] = useState(false);
+  const [schedulePreview, setSchedulePreview] = useState<SchedulePreviewRow[]>([]);
+  const [scheduleWarnings, setScheduleWarnings] = useState<string[]>([]);
+
   // Edit event state
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [editFormData, setEditFormData] = useState<EventFormData>({});
@@ -746,6 +767,119 @@ export default function AdminPage() {
     }
   };
 
+  const handleScheduleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === 'string' ? reader.result : '';
+      setScheduleRawText(text);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleParseSchedule = async () => {
+    if (!scheduleRawText.trim() || !scheduleHub.hubSlug || !scheduleHub.hostName.trim()) {
+      setFeedback('error', 'Paste schedule text, select a hub, and enter a host name.');
+      return;
+    }
+    setScheduleParsing(true);
+    setSchedulePreview([]);
+    setScheduleWarnings([]);
+    try {
+      const res = await fetch('/api/admin/hubs/import-schedule/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawText: scheduleRawText,
+          hubSlug: scheduleHub.hubSlug,
+          hostName: scheduleHub.hostName.trim(),
+          defaultTimezone: scheduleDefaultTz,
+          sourceUrl: scheduleSourceUrl.trim() || undefined,
+          skipUmbrellaEvents: scheduleSkipUmbrella,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to parse schedule');
+      setSchedulePreview(
+        (data.events || []).map((e: Omit<SchedulePreviewRow, 'included'>) => ({
+          ...e,
+          included: true,
+        }))
+      );
+      setScheduleWarnings(data.warnings || []);
+      if ((data.events || []).length === 0) {
+        setFeedback('error', 'No sessions parsed. Check the paste and try again.');
+      } else {
+        setFeedback(
+          'success',
+          `Parsed ${data.events.length} session${data.events.length === 1 ? '' : 's'}. Review below before importing.`
+        );
+      }
+    } catch (err: any) {
+      setFeedback('error', err.message || 'Failed to parse schedule');
+    } finally {
+      setScheduleParsing(false);
+    }
+  };
+
+  const handleIngestSchedule = async () => {
+    const selected = schedulePreview.filter((r) => r.included);
+    if (selected.length === 0) {
+      setFeedback('error', 'Select at least one session to import.');
+      return;
+    }
+    if (!scheduleHub.hubSlug || !scheduleHub.hostName.trim()) {
+      setFeedback('error', 'Hub and host name are required.');
+      return;
+    }
+    setScheduleIngesting(true);
+    try {
+      const res = await fetch('/api/admin/hubs/import-schedule/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          events: selected.map(({ included: _i, ...rest }) => rest),
+          hubSlug: scheduleHub.hubSlug,
+          hostName: scheduleHub.hostName.trim(),
+          sourceUrl: scheduleSourceUrl.trim() || undefined,
+          defaultTimezone: scheduleDefaultTz,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to import schedule');
+      const hubName =
+        hubsList.find((h) => h.slug === scheduleHub.hubSlug)?.name ?? scheduleHub.hubSlug;
+      const created = data.created ?? 0;
+      const flagged = data.flaggedDuplicate ?? 0;
+      const skipped = data.skipped ?? 0;
+      const errors = data.errors ?? 0;
+      setFeedback(
+        'success',
+        `Imported ${created + flagged} event(s) to “${hubName}” hub pending (${created} new, ${flagged} possible duplicates${skipped ? `, ${skipped} skipped` : ''}${errors ? `, ${errors} errors` : ''}). Approve in Hub Pending below.`
+      );
+      setSchedulePreview([]);
+      setScheduleRawText('');
+      await fetchHubPendingEvents();
+      setEventViewMode('hub-pending');
+      setAdminTab('events');
+    } catch (err: any) {
+      setFeedback('error', err.message || 'Failed to import schedule');
+    } finally {
+      setScheduleIngesting(false);
+    }
+  };
+
+  const updateSchedulePreviewRow = (
+    index: number,
+    patch: Partial<SchedulePreviewRow>
+  ) => {
+    setSchedulePreview((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
+    );
+  };
+
   const handleToggleMonitoring = async (id: string, enabled: boolean) => {
     try {
       const res = await fetch('/api/scrape', {
@@ -1223,6 +1357,211 @@ export default function AdminPage() {
             {scraping ? 'Scraping…' : 'Scrape URL'}
           </button>
         </form>
+      </div>
+
+      {/* Import host schedule (festival hub paste) */}
+      <div className="bg-white dark:bg-gray-800 border border-purple-200 dark:border-purple-800 rounded-lg p-6 mb-8 shadow-md">
+        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-1">
+          🎪 Import host schedule
+        </h2>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          Paste a host&apos;s festival agenda (day headers, time ranges, venues). Parse with AI, review, then import to Hub Pending.
+        </p>
+        <div className="space-y-4">
+          <div className="rounded-lg border border-dashed border-purple-300 dark:border-purple-700 p-4">
+            <HubAssignFields
+              hubs={hubsList}
+              value={scheduleHub}
+              onChange={setScheduleHub}
+              showMainToggle={false}
+              idPrefix="schedule-hub"
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="schedule-tz" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Default timezone
+              </label>
+              <input
+                id="schedule-tz"
+                type="text"
+                value={scheduleDefaultTz}
+                onChange={(e) => setScheduleDefaultTz(e.target.value)}
+                placeholder="Europe/Paris"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              />
+            </div>
+            <div>
+              <label htmlFor="schedule-source-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Source URL (optional)
+              </label>
+              <input
+                id="schedule-source-url"
+                type="url"
+                value={scheduleSourceUrl}
+                onChange={(e) => setScheduleSourceUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={scheduleSkipUmbrella}
+              onChange={(e) => setScheduleSkipUmbrella(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+            />
+            Skip multi-day umbrella events (default)
+          </label>
+          <div>
+            <label htmlFor="schedule-paste" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Pasted schedule
+            </label>
+            <textarea
+              id="schedule-paste"
+              value={scheduleRawText}
+              onChange={(e) => setScheduleRawText(e.target.value)}
+              rows={12}
+              placeholder={'Monday, June 22, 2026\n2:00 PM - 2:45 PM (CEST)\nTalk title\nSmartly Penthouse'}
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent dark:bg-gray-700 dark:text-white font-mono text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Or upload .txt
+            </label>
+            <input
+              type="file"
+              accept=".txt,text/plain"
+              onChange={handleScheduleFileUpload}
+              className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 dark:file:bg-purple-900 dark:file:text-purple-200"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleParseSchedule}
+            disabled={scheduleParsing || !scheduleRawText.trim()}
+            className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {scheduleParsing ? 'Parsing…' : 'Parse schedule'}
+          </button>
+          {scheduleWarnings.length > 0 && (
+            <div className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+              <p className="font-medium mb-1">Parser notes</p>
+              <ul className="list-disc list-inside space-y-0.5">
+                {scheduleWarnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {schedulePreview.length > 0 && (
+            <div className="border border-purple-200 dark:border-purple-800 rounded-lg overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-purple-50 dark:bg-purple-900/30">
+                <span className="font-medium text-gray-900 dark:text-white">
+                  Preview ({schedulePreview.filter((r) => r.included).length} of {schedulePreview.length} selected)
+                </span>
+                <button
+                  type="button"
+                  onClick={handleIngestSchedule}
+                  disabled={scheduleIngesting || schedulePreview.every((r) => !r.included)}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-semibold disabled:opacity-50"
+                >
+                  {scheduleIngesting
+                    ? 'Importing…'
+                    : `Import ${schedulePreview.filter((r) => r.included).length} event(s)`}
+                </button>
+              </div>
+              <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
+                    <tr>
+                      <th className="px-2 py-2 text-left w-8" />
+                      <th className="px-2 py-2 text-left">Title</th>
+                      <th className="px-2 py-2 text-left">Start</th>
+                      <th className="px-2 py-2 text-left">End</th>
+                      <th className="px-2 py-2 text-left">Location</th>
+                      <th className="px-2 py-2 text-left">Tags</th>
+                      <th className="px-2 py-2 text-left">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {schedulePreview.map((row, index) => (
+                      <tr
+                        key={index}
+                        className={row.included ? '' : 'opacity-50 bg-gray-50/50 dark:bg-gray-900/30'}
+                      >
+                        <td className="px-2 py-2 align-top">
+                          <input
+                            type="checkbox"
+                            checked={row.included}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, { included: e.target.checked })
+                            }
+                            className="h-4 w-4 rounded text-purple-600"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[10rem]">
+                          <input
+                            type="text"
+                            value={row.title}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, { title: e.target.value })
+                            }
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[11rem]">
+                          <input
+                            type="text"
+                            value={row.start}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, { start: e.target.value })
+                            }
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800 font-mono text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[11rem]">
+                          <input
+                            type="text"
+                            value={row.end}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, { end: e.target.value })
+                            }
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800 font-mono text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[8rem]">
+                          <input
+                            type="text"
+                            value={row.location ?? ''}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, {
+                                location: e.target.value || null,
+                              })
+                            }
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top text-xs text-gray-600 dark:text-gray-400">
+                          {(row.tags ?? []).join(', ') || '—'}
+                        </td>
+                        <td className="px-2 py-2 align-top max-w-[12rem] text-xs text-gray-600 dark:text-gray-400 truncate" title={row.description ?? ''}>
+                          {row.description
+                            ? row.description.length > 80
+                              ? `${row.description.slice(0, 80)}…`
+                              : row.description
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* CSV Upload Section */}

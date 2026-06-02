@@ -11,6 +11,7 @@ export interface HubOption {
   id: string;
   slug: string;
   name: string;
+  timezone?: string | null;
   hosts?: HubHostOption[];
 }
 

@@ -855,15 +855,22 @@ export default function AdminPage() {
       const flagged = data.flaggedDuplicate ?? 0;
       const skipped = data.skipped ?? 0;
       const errors = data.errors ?? 0;
+      const normErrors = Array.isArray(data.normalizationErrors)
+        ? data.normalizationErrors.filter(Boolean)
+        : [];
       setFeedback(
         'success',
-        `Imported ${created + flagged} event(s) to “${hubName}” hub pending (${created} new, ${flagged} possible duplicates${skipped ? `, ${skipped} skipped` : ''}${errors ? `, ${errors} errors` : ''}). Approve in Hub Pending below.`
+        `Imported ${created + flagged} event(s) to “${hubName}” hub pending (${created} new, ${flagged} possible duplicates${skipped ? `, ${skipped} skipped` : ''}${errors ? `, ${errors} errors` : ''}${normErrors.length ? `; ${normErrors.length} row(s) failed normalization` : ''}). Approve in the Hub Pending tab below.`
       );
       setSchedulePreview([]);
       setScheduleRawText('');
+      setScheduleWarnings([]);
       await fetchHubPendingEvents();
       setEventViewMode('hub-pending');
       setAdminTab('events');
+      requestAnimationFrame(() => {
+        document.getElementById('admin-events-section')?.scrollIntoView({ behavior: 'smooth' });
+      });
     } catch (err: any) {
       setFeedback('error', err.message || 'Failed to import schedule');
     } finally {
@@ -1364,15 +1371,24 @@ export default function AdminPage() {
         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-1">
           🎪 Import host schedule
         </h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
           Paste a host&apos;s festival agenda (day headers, time ranges, venues). Parse with AI, review, then import to Hub Pending.
+        </p>
+        <p className="text-xs text-purple-700 dark:text-purple-300 mb-4">
+          After import, open the <strong>Hub pending</strong> tab under Events (page scrolls there automatically) to approve sessions for the festival hub page.
         </p>
         <div className="space-y-4">
           <div className="rounded-lg border border-dashed border-purple-300 dark:border-purple-700 p-4">
             <HubAssignFields
               hubs={hubsList}
               value={scheduleHub}
-              onChange={setScheduleHub}
+              onChange={(next) => {
+                setScheduleHub(next);
+                if (next.hubSlug) {
+                  const hub = hubsList.find((h) => h.slug === next.hubSlug);
+                  if (hub?.timezone) setScheduleDefaultTz(hub.timezone);
+                }
+              }}
               showMainToggle={false}
               idPrefix="schedule-hub"
             />
@@ -1455,6 +1471,11 @@ export default function AdminPage() {
                 ))}
               </ul>
             </div>
+          )}
+          {!scheduleParsing && scheduleRawText.trim() && schedulePreview.length === 0 && scheduleWarnings.length > 0 && (
+            <p className="text-sm text-gray-600 dark:text-gray-400 italic">
+              No sessions in preview — adjust the paste or timezone and parse again.
+            </p>
           )}
           {schedulePreview.length > 0 && (
             <div className="border border-purple-200 dark:border-purple-800 rounded-lg overflow-hidden">
@@ -1913,7 +1934,7 @@ export default function AdminPage() {
       {adminTab === 'events' && (
         <>
           {/* Events View Toggle */}
-          <div className="mb-6 flex items-center justify-between">
+          <div id="admin-events-section" className="mb-6 flex items-center justify-between">
             <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
               {eventViewMode === 'pending' && '⏳ Main calendar — pending'}
               {eventViewMode === 'hub-pending' && '🎪 Festival hubs — pending'}

@@ -7,6 +7,7 @@ import { Event, Tag } from '@prisma/client';
 import { format } from 'date-fns';
 import TagSelector from '@/components/TagSelector';
 import DuplicateReviewModal from '@/components/admin/DuplicateReviewModal';
+import AdminHubsPanel from '@/components/admin/AdminHubsPanel';
 import { getDisplayName } from '@/lib/tags';
 import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
 import { isAllDayEvent, TEMPORAL_KIND, formatYmdUtc } from '@/lib/eventTemporal';
@@ -79,7 +80,7 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [eventViewMode, setEventViewMode] = useState<'pending' | 'published'>('pending');
-  const [adminTab, setAdminTab] = useState<'events' | 'tags' | 'stats'>('events');
+  const [adminTab, setAdminTab] = useState<'events' | 'tags' | 'stats' | 'hubs'>('events');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [topEvents, setTopEvents] = useState<AdminTopEvent[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -1322,8 +1323,21 @@ export default function AdminPage() {
           >
             📊 Stats
           </button>
+          <button
+            onClick={() => setAdminTab('hubs')}
+            className={`rounded-md px-4 py-2 transition ${
+              adminTab === 'hubs'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+            }`}
+          >
+            🎪 Festival Hubs
+          </button>
         </div>
       </div>
+
+      {/* Festival Hubs Tab Content */}
+      {adminTab === 'hubs' && <AdminHubsPanel />}
 
       {/* Events Tab Content */}
       {adminTab === 'events' && (

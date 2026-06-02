@@ -125,6 +125,28 @@ export default function AdminPage() {
     }
   }, []);
 
+  /** Resolve hub/host labels for an event (admin lists). */
+  const getEventHubLabel = useCallback(
+    (event: Event) => {
+      if (!event.hubId) return null;
+      const hub = hubsList.find((h) => h.id === event.hubId);
+      const host = hub?.hosts?.find((h) => h.id === event.hubHostId);
+      return {
+        hubName: hub?.name ?? 'Festival hub',
+        hostName: host?.name ?? null,
+        hubSlug: hub?.slug,
+      };
+    },
+    [hubsList]
+  );
+
+  // When scraping for a hub, default host name from source name if host field is empty.
+  useEffect(() => {
+    if (scrapeHub.hubSlug && scrapeName.trim() && !scrapeHub.hostName.trim()) {
+      setScrapeHub((prev) => ({ ...prev, hostName: scrapeName.trim() }));
+    }
+  }, [scrapeName, scrapeHub.hubSlug, scrapeHub.hostName]);
+
   const getExtractionMethodLabel = (method?: string | null): string => {
     switch (method) {
       case 'firecrawl-agent':
@@ -449,6 +471,8 @@ export default function AdminPage() {
     try {
       setEventsLoading(true);
       const params = buildEventsQueryParams('PENDING');
+      // Hub-scraped events have hubId set and showOnMainCalendar=false — include them in admin lists.
+      params.set('includeHubEvents', 'true');
       params.set('_', Date.now().toString());
       const res = await fetch(`/api/events?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch pending events');
@@ -466,6 +490,7 @@ export default function AdminPage() {
     try {
       setEventsLoading(true);
       const params = buildEventsQueryParams('PUBLISHED');
+      params.set('includeHubEvents', 'true');
       params.set('_', Date.now().toString());
       const res = await fetch(`/api/events?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch published events');
@@ -641,6 +666,12 @@ export default function AdminPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to scrape URL');
 
+      const scrapedHubName = scrapeHub.hubSlug
+        ? hubsList.find((h) => h.slug === scrapeHub.hubSlug)?.name ?? scrapeHub.hubSlug
+        : null;
+      const ingestedCount =
+        (data.eventsAdded ?? 0) + (data.eventsFlaggedDuplicate ?? 0);
+
       const resultParts = [
         `✅ Scraped successfully using ${getExtractionMethodLabel(data.extractionMethod)} method`,
         `Found ${data.eventsFound || 0} events`,
@@ -649,6 +680,9 @@ export default function AdminPage() {
         data.eventsSkipped ? `${data.eventsSkipped} events skipped (missing required dates)` : '',
         data.skippedPastEvents ? `${data.skippedPastEvents} past events skipped` : '',
         enableMonitoring && data.monitoredUrl ? '✅ URL added to monitoring' : '',
+        scrapedHubName && ingestedCount > 0
+          ? `Assigned to “${scrapedHubName}” — go to Events → Pending below and click Approve. Hub pages only show published events.`
+          : '',
       ].filter(Boolean);
 
       setScrapeResult(resultParts.join('\n'));
@@ -662,6 +696,10 @@ export default function AdminPage() {
       setFeedback('success', 'URL scraped successfully!');
       await fetch('/api/revalidate', { method: 'POST' });
       await fetchPendingEvents();
+      if (scrapedHubName && ingestedCount > 0) {
+        setEventViewMode('pending');
+        setAdminTab('events');
+      }
       if (adminTab === 'events') {
         await fetchPublishedEvents();
       }
@@ -1806,7 +1844,9 @@ export default function AdminPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              {visiblePendingEvents.map((event) => (
+              {visiblePendingEvents.map((event) => {
+                const hubLabel = getEventHubLabel(event);
+                return (
                 <div
                   key={event.id}
                   className={`bg-white dark:bg-gray-800 border rounded-lg p-6 shadow-md ${
@@ -1829,6 +1869,12 @@ export default function AdminPage() {
                         {event.duplicateReviewStatus === 'PENDING_REVIEW' && event.potentialDuplicateOfId && (
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
                             Potential duplicate
+                          </span>
+                        )}
+                        {hubLabel && (
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200">
+                            🎪 {hubLabel.hubName}
+                            {hubLabel.hostName ? ` · ${hubLabel.hostName}` : ' · no host yet'}
                           </span>
                         )}
                       </div>
@@ -1947,7 +1993,8 @@ export default function AdminPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           )}
         </div>

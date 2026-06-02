@@ -7,6 +7,10 @@ export async function GET(request: NextRequest) {
   try {
     const events = await prisma.event.findMany({
       orderBy: { start: 'asc' },
+      include: {
+        hub: { select: { slug: true } },
+        hubHost: { select: { slug: true } },
+      },
     });
 
     // Convert to CSV format
@@ -28,6 +32,8 @@ export async function GET(request: NextRequest) {
         country: event.country || '',
         region: event.region || '',
         city: event.city || '',
+        hub_slug: event.hub?.slug || '',
+        host_slug: event.hubHost?.slug || '',
       };
     });
 

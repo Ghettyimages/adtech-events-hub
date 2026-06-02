@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const publishImmediately = formData.get('publish') === 'true';
+    const defaultHubSlug = (formData.get('hubSlug') as string | null)?.trim() || null;
 
     if (!file) {
       return NextResponse.json(
@@ -207,9 +208,10 @@ export async function POST(request: NextRequest) {
         let hubHostId: string | null = null;
         let showOnMainCalendar = false;
 
-        if (row.hub_slug?.trim()) {
+        const rowHubSlug = row.hub_slug?.trim() || defaultHubSlug;
+        if (rowHubSlug) {
           const hub = await prisma.eventHub.findUnique({
-            where: { slug: row.hub_slug.trim() },
+            where: { slug: rowHubSlug },
           });
           if (hub) {
             hubId = hub.id;

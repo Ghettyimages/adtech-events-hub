@@ -8,6 +8,10 @@ import { format } from 'date-fns';
 import TagSelector from '@/components/TagSelector';
 import DuplicateReviewModal from '@/components/admin/DuplicateReviewModal';
 import AdminHubsPanel from '@/components/admin/AdminHubsPanel';
+import HubAssignFields, {
+  type HubOption,
+  type HubAssignValue,
+} from '@/components/admin/HubAssignFields';
 import { getDisplayName } from '@/lib/tags';
 import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
 import { isAllDayEvent, TEMPORAL_KIND, formatYmdUtc } from '@/lib/eventTemporal';
@@ -94,6 +98,32 @@ export default function AdminPage() {
   const [monitoredUrls, setMonitoredUrls] = useState<MonitoredUrl[]>([]);
   const [extractedEvents, setExtractedEvents] = useState<any[]>([]);
   const [extractionMethod, setExtractionMethod] = useState<string | null>(null);
+
+  // Festival hubs (for assigning events to hubs)
+  const [hubsList, setHubsList] = useState<HubOption[]>([]);
+  const EMPTY_HUB_ASSIGN: HubAssignValue = {
+    hubSlug: '',
+    hostName: '',
+    showOnMainCalendar: false,
+  };
+  const [scrapeHub, setScrapeHub] = useState<HubAssignValue>(EMPTY_HUB_ASSIGN);
+  const [csvHubSlug, setCsvHubSlug] = useState('');
+  const [editHub, setEditHub] = useState<HubAssignValue>(EMPTY_HUB_ASSIGN);
+  // Quick assign-to-hub modal
+  const [assignEvent, setAssignEvent] = useState<Event | null>(null);
+  const [assignHub, setAssignHub] = useState<HubAssignValue>(EMPTY_HUB_ASSIGN);
+  const [assigning, setAssigning] = useState(false);
+
+  const fetchHubs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/hubs');
+      if (!res.ok) return;
+      const data = await res.json();
+      setHubsList(data.hubs || []);
+    } catch (err) {
+      console.error('Failed to fetch hubs:', err);
+    }
+  }, []);
 
   const getExtractionMethodLabel = (method?: string | null): string => {
     switch (method) {
@@ -455,7 +485,8 @@ export default function AdminPage() {
     }
     fetchPendingEvents();
     fetchPublishedEvents();
-  }, [adminTab, status, session, searchDebounced, filterSource, filterCountry, filterRegion, filterCity, filterTags, eventSort, fetchPendingEvents, fetchPublishedEvents]);
+    fetchHubs();
+  }, [adminTab, status, session, searchDebounced, filterSource, filterCountry, filterRegion, filterCity, filterTags, eventSort, fetchPendingEvents, fetchPublishedEvents, fetchHubs]);
 
   const clearEventFilters = useCallback(() => {
     setSearchQuery('');
@@ -548,6 +579,9 @@ export default function AdminPage() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('publish', publishImmediately.toString());
+      if (csvHubSlug) {
+        formData.append('hubSlug', csvHubSlug);
+      }
 
       const response = await fetch('/api/events/upload-csv', {
         method: 'POST',
@@ -597,6 +631,10 @@ export default function AdminPage() {
           url: scrapeUrl,
           name: scrapeName || undefined,
           enableMonitoring,
+          hubSlug: scrapeHub.hubSlug || undefined,
+          hostName: scrapeHub.hubSlug
+            ? scrapeHub.hostName || scrapeName || undefined
+            : undefined,
         }),
       });
 
@@ -620,6 +658,7 @@ export default function AdminPage() {
       setScrapeUrl('');
       setScrapeName('');
       setEnableMonitoring(false);
+      setScrapeHub(EMPTY_HUB_ASSIGN);
       setFeedback('success', 'URL scraped successfully!');
       await fetch('/api/revalidate', { method: 'POST' });
       await fetchPendingEvents();
@@ -736,6 +775,76 @@ export default function AdminPage() {
       region: event.region || '',
       city: event.city || '',
     });
+
+    // Initialize hub assignment from the event's current hub/host.
+    const currentHub = event.hubId
+      ? hubsList.find((h) => h.id === event.hubId)
+      : undefined;
+    const currentHost = currentHub?.hosts?.find(
+      (host) => host.id === event.hubHostId
+    );
+    setEditHub({
+      hubSlug: currentHub?.slug || '',
+      hostName: currentHost?.name || '',
+      showOnMainCalendar: event.showOnMainCalendar ?? false,
+    });
+  };
+
+  /** Persist hub/host assignment for an event via the dedicated hub endpoint. */
+  const saveHubAssignment = async (eventId: string, hub: HubAssignValue) => {
+    const hubId = hub.hubSlug
+      ? hubsList.find((h) => h.slug === hub.hubSlug)?.id ?? null
+      : null;
+    const res = await fetch(`/api/admin/events/${eventId}/hub`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hubId,
+        hostName: hubId ? hub.hostName || null : null,
+        showOnMainCalendar: hub.showOnMainCalendar,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to assign hub');
+    }
+  };
+
+  const openAssign = (event: Event) => {
+    const currentHub = event.hubId
+      ? hubsList.find((h) => h.id === event.hubId)
+      : undefined;
+    const currentHost = currentHub?.hosts?.find(
+      (host) => host.id === event.hubHostId
+    );
+    setAssignHub({
+      hubSlug: currentHub?.slug || '',
+      hostName: currentHost?.name || '',
+      showOnMainCalendar: event.showOnMainCalendar ?? false,
+    });
+    setAssignEvent(event);
+  };
+
+  const handleQuickAssign = async () => {
+    if (!assignEvent) return;
+    setAssigning(true);
+    try {
+      await saveHubAssignment(assignEvent.id, assignHub);
+      await fetchPublishedEvents();
+      await fetchPendingEvents();
+      await fetchHubs();
+      await fetch('/api/revalidate', { method: 'POST' });
+      setAssignEvent(null);
+      setAssignHub(EMPTY_HUB_ASSIGN);
+      setFeedback(
+        'success',
+        assignHub.hubSlug ? 'Event assigned to hub!' : 'Event removed from hub.'
+      );
+    } catch (err: any) {
+      setFeedback('error', err.message || 'Failed to assign hub');
+    } finally {
+      setAssigning(false);
+    }
   };
 
   const handleSaveEdit = async (andApprove: boolean = false) => {
@@ -882,12 +991,17 @@ export default function AdminPage() {
 
       console.log('Update successful:', responseData);
 
+      // Persist hub/host assignment (separate endpoint handles tags + host create).
+      await saveHubAssignment(editingEvent.id, editHub);
+
       await fetchPublishedEvents();
       await fetchPendingEvents();
+      await fetchHubs();
       await fetch('/api/revalidate', { method: 'POST' });
       setEditingEvent(null);
       setEditFormData({});
       setEditSelectedTags([]);
+      setEditHub(EMPTY_HUB_ASSIGN);
       setIsAllDay(true); // Reset to default
       setFeedback('success', andApprove ? 'Event updated and approved!' : 'Event updated successfully!');
     } catch (err: any) {
@@ -1011,6 +1125,22 @@ export default function AdminPage() {
               Enable automatic monitoring (checks this URL daily for updates)
             </label>
           </div>
+          <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-4">
+            <HubAssignFields
+              hubs={hubsList}
+              value={scrapeHub}
+              onChange={setScrapeHub}
+              hostSuggestion={scrapeName || undefined}
+              showMainToggle={false}
+              idPrefix="scrape-hub"
+            />
+            {scrapeHub.hubSlug && (
+              <p className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+                These events will be added to the hub (hidden from the main
+                calendar) and stay pending until you approve them.
+              </p>
+            )}
+          </div>
           <button
             type="submit"
             disabled={scraping}
@@ -1036,7 +1166,10 @@ export default function AdminPage() {
               Required columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">title</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">start</code>
             </p>
             <p className="mb-2">
-              Optional columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">location</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">description</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">status</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">tags</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">country</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">region</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">city</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">all_day</code>
+              Optional columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">location</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">description</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">status</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">tags</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">country</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">region</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">city</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">all_day</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code>
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code> / <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code> assign rows to a festival hub. Or pick a default hub below to apply it to every row without its own <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code>.
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
               Date formats: YYYY-MM-DD, MM/DD/YYYY, or ISO format. Tags should be comma-separated.
@@ -1059,6 +1192,30 @@ export default function AdminPage() {
               Publish events immediately (otherwise they'll be PENDING)
             </span>
           </label>
+        </div>
+
+        <div className="mb-4">
+          <label htmlFor="csv-hub" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Default Festival Hub (optional)
+          </label>
+          <select
+            id="csv-hub"
+            value={csvHubSlug}
+            onChange={(e) => setCsvHubSlug(e.target.value)}
+            className="w-full md:w-auto px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+          >
+            <option value="">— None (regular calendar) —</option>
+            {hubsList.map((hub) => (
+              <option key={hub.id} value={hub.slug}>
+                {hub.name}
+              </option>
+            ))}
+          </select>
+          {csvHubSlug && (
+            <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
+              Rows without their own <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code> will be added to this hub (hidden from the main calendar). Use a <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code> or <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code> column to set each host.
+            </p>
+          )}
         </div>
 
         <div className="flex items-center space-x-4 mb-4">
@@ -1566,6 +1723,17 @@ export default function AdminPage() {
                                   Edit
                                 </button>
                                 <button
+                                  onClick={() => openAssign(event)}
+                                  className={`px-3 py-1.5 rounded-lg transition text-xs font-semibold ${
+                                    event.hubId
+                                      ? 'bg-purple-600 text-white hover:bg-purple-700'
+                                      : 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900 dark:text-purple-200'
+                                  }`}
+                                  title={event.hubId ? 'Assigned to a hub' : 'Assign to a hub'}
+                                >
+                                  🎪 Hub
+                                </button>
+                                <button
                                   onClick={() => handleDeleteEvent(event.id)}
                                   className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-xs font-semibold"
                                 >
@@ -1754,6 +1922,16 @@ export default function AdminPage() {
                       className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
                     >
                       ✏️ Edit
+                    </button>
+                    <button
+                      onClick={() => openAssign(event)}
+                      className={`px-6 py-2 rounded-lg transition font-semibold ${
+                        event.hubId
+                          ? 'bg-purple-600 text-white hover:bg-purple-700'
+                          : 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900 dark:text-purple-200'
+                      }`}
+                    >
+                      🎪 {event.hubId ? 'Hub ✓' : 'Hub'}
                     </button>
                     <button
                       onClick={() => handleApprove(event.id)}
@@ -2155,6 +2333,64 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Quick Assign-to-Hub Modal */}
+      {assignEvent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                    🎪 Assign to Festival Hub
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+                    {assignEvent.title}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setAssignEvent(null);
+                    setAssignHub(EMPTY_HUB_ASSIGN);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              <HubAssignFields
+                hubs={hubsList}
+                value={assignHub}
+                onChange={setAssignHub}
+                hostSuggestion={assignEvent.source || undefined}
+                idPrefix="quick-hub"
+              />
+
+              <div className="flex gap-3 pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={handleQuickAssign}
+                  disabled={assigning}
+                  className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {assigning ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignEvent(null);
+                    setAssignHub(EMPTY_HUB_ASSIGN);
+                  }}
+                  className="px-6 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition font-semibold"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Event Modal */}
       {editingEvent && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -2167,6 +2403,7 @@ export default function AdminPage() {
                     setEditingEvent(null);
                     setEditFormData({});
                     setEditSelectedTags([]);
+                    setEditHub(EMPTY_HUB_ASSIGN);
                     setIsAllDay(true); // Reset to default
                   }}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl"
@@ -2333,6 +2570,20 @@ export default function AdminPage() {
                   />
                 </div>
 
+                {/* Festival Hub Assignment */}
+                <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-4">
+                  <p className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    🎪 Festival Hub
+                  </p>
+                  <HubAssignFields
+                    hubs={hubsList}
+                    value={editHub}
+                    onChange={setEditHub}
+                    hostSuggestion={editFormData.source || undefined}
+                    idPrefix="edit-hub"
+                  />
+                </div>
+
                 {/* Structured Location Fields */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
@@ -2397,6 +2648,7 @@ export default function AdminPage() {
                       setEditingEvent(null);
                       setEditFormData({});
                       setEditSelectedTags([]);
+                      setEditHub(EMPTY_HUB_ASSIGN);
                       setIsAllDay(true); // Reset to default
                     }}
                     className="px-6 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition font-semibold"

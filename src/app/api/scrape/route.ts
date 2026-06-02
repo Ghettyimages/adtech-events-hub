@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
       skipPastEvents = true,
       hubSlug,
       hostSlug,
+      hostName,
     } = body;
 
     if (!url) {
@@ -260,6 +261,7 @@ export async function POST(request: NextRequest) {
       publish: false,
       hubSlug: hubSlug || undefined,
       hostSlug: hostSlug || undefined,
+      hostName: hostName || undefined,
     });
 
     const successCount = ingestResult.created || 0;

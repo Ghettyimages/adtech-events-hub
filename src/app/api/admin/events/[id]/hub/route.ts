@@ -6,11 +6,13 @@ import {
   appendHubTag,
   applyHubEventDefaults,
   resolveHostForIngest,
+  resolveOrCreateHostByName,
 } from '@/lib/hubs';
 
 const assignSchema = z.object({
   hubId: z.string().nullable(),
   hubHostId: z.string().nullable().optional(),
+  hostName: z.string().nullable().optional(),
   showOnMainCalendar: z.boolean().optional(),
 });
 
@@ -35,8 +37,18 @@ export async function PATCH(
     let hubHostId = body.hubHostId ?? null;
     let tags = existing.tags;
 
-    if (body.hubId && !hubHostId && existing.source) {
-      hubHostId = await resolveHostForIngest(body.hubId, existing.source);
+    if (body.hubId) {
+      // Write-in host name takes priority (match existing or create new).
+      if (!hubHostId && body.hostName?.trim()) {
+        hubHostId = await resolveOrCreateHostByName(body.hubId, body.hostName);
+      }
+      // Fall back to matching the event's source name to a host.
+      if (!hubHostId && existing.source) {
+        hubHostId = await resolveHostForIngest(body.hubId, existing.source);
+      }
+    } else {
+      // Clearing the hub also clears the host.
+      hubHostId = null;
     }
 
     if (body.hubId) {

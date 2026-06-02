@@ -176,7 +176,12 @@ export interface IngestScrapedEventsResult {
  */
 export async function ingestScrapedEvents(
   events: ExtractedEvent[],
-  options: { publish?: boolean; hubSlug?: string; hostSlug?: string } = {}
+  options: {
+    publish?: boolean;
+    hubSlug?: string;
+    hostSlug?: string;
+    hostName?: string;
+  } = {}
 ): Promise<IngestScrapedEventsResult> {
   const publish = options.publish ?? false;
   let created = 0;
@@ -200,6 +205,12 @@ export async function ingestScrapedEvents(
           where: { hubId_slug: { hubId: hub.id, slug: options.hostSlug } },
         });
         defaultHostId = host?.id ?? null;
+      }
+      // Write-in host name (auto-filled from source, editable by admin):
+      // match an existing host or create a new one for the whole batch.
+      if (!defaultHostId && options.hostName?.trim()) {
+        const { resolveOrCreateHostByName } = await import('@/lib/hubs');
+        defaultHostId = await resolveOrCreateHostByName(hub.id, options.hostName);
       }
     }
   }

@@ -181,6 +181,47 @@ export async function getHubEvents(
   return events;
 }
 
+/** Turn a free-text host/source name into a URL-safe slug. */
+export function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+/**
+ * Resolve a hub host from a write-in name. Matches an existing host first
+ * (by sourceAlias / name / slug); if none match, creates a new host for the
+ * hub using a slug derived from the confirmed name. Returns the host id, or
+ * null when the name is blank.
+ */
+export async function resolveOrCreateHostByName(
+  hubId: string,
+  name: string | null | undefined
+): Promise<string | null> {
+  const trimmed = name?.trim();
+  if (!trimmed) return null;
+
+  const existingId = await resolveHostForIngest(hubId, trimmed);
+  if (existingId) return existingId;
+
+  const slug = slugify(trimmed);
+  if (!slug) return null;
+
+  // Slug may already exist even if name/alias didn't match above.
+  const clash = await prisma.hubHost.findUnique({
+    where: { hubId_slug: { hubId, slug } },
+  });
+  if (clash) return clash.id;
+
+  const created = await prisma.hubHost.create({
+    data: { hubId, slug, name: trimmed, sourceAlias: trimmed },
+  });
+  return created.id;
+}
+
 export async function resolveHostForIngest(
   hubId: string,
   sourceString: string | null | undefined

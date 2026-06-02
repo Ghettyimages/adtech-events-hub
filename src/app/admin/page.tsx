@@ -12,6 +12,7 @@ import HubAssignFields, {
   type HubOption,
   type HubAssignValue,
 } from '@/components/admin/HubAssignFields';
+import AdminPendingEventList from '@/components/admin/AdminPendingEventList';
 import { getDisplayName } from '@/lib/tags';
 import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
 import { isAllDayEvent, TEMPORAL_KIND, formatYmdUtc } from '@/lib/eventTemporal';
@@ -79,11 +80,14 @@ export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [pendingEvents, setPendingEvents] = useState<EventWithSubmitter[]>([]);
+  const [hubPendingEvents, setHubPendingEvents] = useState<EventWithSubmitter[]>([]);
   const [publishedEvents, setPublishedEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [eventViewMode, setEventViewMode] = useState<'pending' | 'published'>('pending');
+  const [eventViewMode, setEventViewMode] = useState<
+    'pending' | 'hub-pending' | 'published'
+  >('pending');
   const [adminTab, setAdminTab] = useState<'events' | 'tags' | 'stats' | 'hubs'>('events');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [topEvents, setTopEvents] = useState<AdminTopEvent[]>([]);
@@ -135,6 +139,7 @@ export default function AdminPage() {
         hubName: hub?.name ?? 'Festival hub',
         hostName: host?.name ?? null,
         hubSlug: hub?.slug,
+        hostSlug: host?.slug,
       };
     },
     [hubsList]
@@ -471,8 +476,8 @@ export default function AdminPage() {
     try {
       setEventsLoading(true);
       const params = buildEventsQueryParams('PENDING');
-      // Hub-scraped events have hubId set and showOnMainCalendar=false — include them in admin lists.
       params.set('includeHubEvents', 'true');
+      params.set('hubScope', 'main');
       params.set('_', Date.now().toString());
       const res = await fetch(`/api/events?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch pending events');
@@ -482,6 +487,24 @@ export default function AdminPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setEventsLoading(false);
+    }
+  }, [buildEventsQueryParams]);
+
+  const fetchHubPendingEvents = useCallback(async () => {
+    try {
+      setEventsLoading(true);
+      const params = buildEventsQueryParams('PENDING');
+      params.set('includeHubEvents', 'true');
+      params.set('hubScope', 'hub');
+      params.set('_', Date.now().toString());
+      const res = await fetch(`/api/events?${params.toString()}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to fetch hub pending events');
+      const data = await res.json();
+      setHubPendingEvents(data.events);
+    } catch (err: any) {
+      console.error('Failed to fetch hub pending events:', err);
+    } finally {
       setEventsLoading(false);
     }
   }, [buildEventsQueryParams]);
@@ -509,9 +532,10 @@ export default function AdminPage() {
       return;
     }
     fetchPendingEvents();
+    fetchHubPendingEvents();
     fetchPublishedEvents();
     fetchHubs();
-  }, [adminTab, status, session, searchDebounced, filterSource, filterCountry, filterRegion, filterCity, filterTags, eventSort, fetchPendingEvents, fetchPublishedEvents, fetchHubs]);
+  }, [adminTab, status, session, searchDebounced, filterSource, filterCountry, filterRegion, filterCity, filterTags, eventSort, fetchPendingEvents, fetchHubPendingEvents, fetchPublishedEvents, fetchHubs]);
 
   const clearEventFilters = useCallback(() => {
     setSearchQuery('');
@@ -541,6 +565,13 @@ export default function AdminPage() {
 
   const visiblePendingEvents = showDuplicatesOnly ? duplicatePendingEvents : pendingEvents;
 
+  const duplicateHubPendingEvents = hubPendingEvents.filter(
+    (event) => event.duplicateReviewStatus === 'PENDING_REVIEW' && Boolean(event.potentialDuplicateOfId)
+  );
+  const visibleHubPendingEvents = showDuplicatesOnly
+    ? duplicateHubPendingEvents
+    : hubPendingEvents;
+
   const handleApprove = async (id: string) => {
     try {
       const res = await fetch(`/api/events/${id}`, {
@@ -551,12 +582,12 @@ export default function AdminPage() {
 
       if (!res.ok) throw new Error('Failed to approve event');
 
-      // Remove from pending list
       setPendingEvents((prev) => prev.filter((e) => e.id !== id));
+      setHubPendingEvents((prev) => prev.filter((e) => e.id !== id));
 
-      // Trigger revalidation
       await fetch('/api/revalidate', { method: 'POST' });
-      await fetchPublishedEvents(); // Refresh published events list
+      await fetchPublishedEvents();
+      await fetchHubPendingEvents();
       setFeedback('success', 'Event approved and published!');
     } catch (err: any) {
       setFeedback('error', err.message);
@@ -574,6 +605,7 @@ export default function AdminPage() {
       if (!res.ok) throw new Error('Failed to reject event');
 
       setPendingEvents((prev) => prev.filter((e) => e.id !== id));
+      setHubPendingEvents((prev) => prev.filter((e) => e.id !== id));
       setFeedback('success', 'Event rejected and deleted.');
     } catch (err: any) {
       setFeedback('error', err.message);
@@ -626,6 +658,7 @@ export default function AdminPage() {
 
       await fetch('/api/revalidate', { method: 'POST' });
       await fetchPendingEvents();
+      await fetchHubPendingEvents();
       await fetchPublishedEvents();
 
       // Clear file input
@@ -681,7 +714,7 @@ export default function AdminPage() {
         data.skippedPastEvents ? `${data.skippedPastEvents} past events skipped` : '',
         enableMonitoring && data.monitoredUrl ? '✅ URL added to monitoring' : '',
         scrapedHubName && ingestedCount > 0
-          ? `Assigned to “${scrapedHubName}” — go to Events → Pending below and click Approve. Hub pages only show published events.`
+          ? `Assigned to “${scrapedHubName}” — open Hub Pending below and click Approve to publish on the festival hub page.`
           : '',
       ].filter(Boolean);
 
@@ -696,8 +729,9 @@ export default function AdminPage() {
       setFeedback('success', 'URL scraped successfully!');
       await fetch('/api/revalidate', { method: 'POST' });
       await fetchPendingEvents();
+      await fetchHubPendingEvents();
       if (scrapedHubName && ingestedCount > 0) {
-        setEventViewMode('pending');
+        setEventViewMode('hub-pending');
         setAdminTab('events');
       }
       if (adminTab === 'events') {
@@ -870,6 +904,7 @@ export default function AdminPage() {
       await saveHubAssignment(assignEvent.id, assignHub);
       await fetchPublishedEvents();
       await fetchPendingEvents();
+      await fetchHubPendingEvents();
       await fetchHubs();
       await fetch('/api/revalidate', { method: 'POST' });
       setAssignEvent(null);
@@ -1034,6 +1069,7 @@ export default function AdminPage() {
 
       await fetchPublishedEvents();
       await fetchPendingEvents();
+      await fetchHubPendingEvents();
       await fetchHubs();
       await fetch('/api/revalidate', { method: 'POST' });
       setEditingEvent(null);
@@ -1540,9 +1576,11 @@ export default function AdminPage() {
           {/* Events View Toggle */}
           <div className="mb-6 flex items-center justify-between">
             <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-              {eventViewMode === 'pending' ? '⏳ Pending Events' : '✅ Published Events'}
+              {eventViewMode === 'pending' && '⏳ Main calendar — pending'}
+              {eventViewMode === 'hub-pending' && '🎪 Festival hubs — pending'}
+              {eventViewMode === 'published' && '✅ Published events'}
             </h2>
-            <div className="flex gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+            <div className="flex flex-wrap gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
               <button
                 onClick={() => setEventViewMode('pending')}
                 className={`px-4 py-2 rounded-md text-sm font-semibold transition ${
@@ -1551,7 +1589,17 @@ export default function AdminPage() {
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
-                Pending ({pendingEvents.length})
+                Calendar pending ({pendingEvents.length})
+              </button>
+              <button
+                onClick={() => setEventViewMode('hub-pending')}
+                className={`px-4 py-2 rounded-md text-sm font-semibold transition ${
+                  eventViewMode === 'hub-pending'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40'
+                }`}
+              >
+                Hub pending ({hubPendingEvents.length})
               </button>
               <button
                 onClick={() => setEventViewMode('published')}
@@ -1833,170 +1881,55 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Pending Events Section */}
+      {/* Main calendar pending */}
       {eventViewMode === 'pending' && (
         <div className="mb-8">
-          {visiblePendingEvents.length === 0 ? (
-            <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
-              <p className="text-gray-600 dark:text-gray-400 text-lg">
-                {showDuplicatesOnly ? 'No potential duplicates pending review.' : 'No pending events to review.'}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {visiblePendingEvents.map((event) => {
-                const hubLabel = getEventHubLabel(event);
-                return (
-                <div
-                  key={event.id}
-                  className={`bg-white dark:bg-gray-800 border rounded-lg p-6 shadow-md ${
-                    event.duplicateReviewStatus === 'PENDING_REVIEW'
-                      ? 'border-amber-400 bg-amber-50/40 dark:border-amber-500 dark:bg-amber-900/20'
-                      : 'border-gray-200 dark:border-gray-700'
-                  }`}
-                >
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                          {event.title}
-                        </h2>
-                        {'subscribers' in event && typeof event.subscribers === 'number' && (
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                            👥 {event.subscribers} {event.subscribers === 1 ? 'subscriber' : 'subscribers'}
-                          </span>
-                        )}
-                        {event.duplicateReviewStatus === 'PENDING_REVIEW' && event.potentialDuplicateOfId && (
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
-                            Potential duplicate
-                          </span>
-                        )}
-                        {hubLabel && (
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-200">
-                            🎪 {hubLabel.hubName}
-                            {hubLabel.hostName ? ` · ${hubLabel.hostName}` : ' · no host yet'}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                        <p>
-                          <strong>Start:</strong> {formatEventDate(event.start, isAllDayEvent(event), false)}
-                        </p>
-                        <p>
-                          <strong>End:</strong> {formatEventDate(event.end, isAllDayEvent(event), true)}
-                        </p>
-                        {event.location && (
-                          <p>
-                            <strong>Location:</strong> {event.location}
-                          </p>
-                        )}
-                        {event.timezone && (
-                          <p>
-                            <strong>Timezone:</strong> {event.timezone}
-                          </p>
-                        )}
-                        {event.source && (
-                          <p>
-                            <strong>Source:</strong> {event.source}
-                          </p>
-                        )}
-                        {event.submitter && (
-                          <p>
-                            <strong>Submitted by:</strong> {event.submitter.name || 'Unknown'} ({event.submitter.email || 'No email'})
-                          </p>
-                        )}
-                        {event.tags && (() => {
-                          try {
-                            const tagsArray = typeof event.tags === 'string' ? JSON.parse(event.tags) : event.tags;
-                            return Array.isArray(tagsArray) && tagsArray.length > 0 ? (
-                              <p>
-                                <strong>Tags:</strong>{' '}
-                                <span className="flex flex-wrap gap-1 mt-1">
-                                  {tagsArray.map((tag: string) => (
-                                    <span
-                                      key={tag}
-                                      className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </span>
-                              </p>
-                            ) : null;
-                          } catch {
-                            return null;
-                          }
-                        })()}
-                        {event.url && (
-                          <p>
-                            <strong>URL:</strong>{' '}
-                            <a
-                              href={event.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:underline break-all"
-                            >
-                              {event.url}
-                            </a>
-                          </p>
-                        )}
-                      </div>
-                      {event.description && (
-                        <div className="mt-4">
-                          <strong className="text-sm text-gray-700 dark:text-gray-300">
-                            Description:
-                          </strong>
-                          <p className="text-gray-700 dark:text-gray-300 mt-1 whitespace-pre-wrap">
-                            {event.description}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+          <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+            Submissions and scrapes for the main calendar (not assigned to a festival hub).
+          </p>
+          <AdminPendingEventList
+            events={visiblePendingEvents}
+            emptyMessage={
+              showDuplicatesOnly
+                ? 'No potential duplicates pending review.'
+                : 'No main-calendar pending events.'
+            }
+            getEventHubLabel={getEventHubLabel}
+            onEdit={handleEditEvent}
+            onAssign={openAssign}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onDuplicateReview={handleOpenDuplicateReview}
+            showHubBadge={false}
+          />
+        </div>
+      )}
 
-                  <div className="flex gap-3 pt-4 border-t">
-                    {event.duplicateReviewStatus === 'PENDING_REVIEW' && event.potentialDuplicateOfId && (
-                      <button
-                        onClick={() => handleOpenDuplicateReview(event)}
-                        className="px-6 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition font-semibold"
-                      >
-                        Review
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleEditEvent(event)}
-                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
-                    >
-                      ✏️ Edit
-                    </button>
-                    <button
-                      onClick={() => openAssign(event)}
-                      className={`px-6 py-2 rounded-lg transition font-semibold ${
-                        event.hubId
-                          ? 'bg-purple-600 text-white hover:bg-purple-700'
-                          : 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900 dark:text-purple-200'
-                      }`}
-                    >
-                      🎪 {event.hubId ? 'Hub ✓' : 'Hub'}
-                    </button>
-                    <button
-                      onClick={() => handleApprove(event.id)}
-                      className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold"
-                    >
-                      ✅ Approve
-                    </button>
-                    <button
-                      onClick={() => handleReject(event.id)}
-                      className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-semibold"
-                    >
-                      ❌ Reject
-                    </button>
-                  </div>
-                </div>
-              );
-              })}
-            </div>
-          )}
+      {/* Festival hub pending */}
+      {eventViewMode === 'hub-pending' && (
+        <div className="mb-8">
+          <div className="mb-4 rounded-lg border border-purple-200 bg-purple-50 dark:border-purple-800 dark:bg-purple-950/40 p-4">
+            <p className="text-sm text-purple-900 dark:text-purple-100">
+              Events scraped or uploaded for a <strong>festival hub</strong> land here.
+              They stay off the main calendar until you enable &quot;Also show on main calendar&quot; on edit.
+              <strong> Approve</strong> to publish on the hub host page.
+            </p>
+          </div>
+          <AdminPendingEventList
+            events={visibleHubPendingEvents}
+            emptyMessage={
+              showDuplicatesOnly
+                ? 'No hub duplicates pending review.'
+                : 'No hub events waiting for approval. Scrape a URL with a festival hub selected above.'
+            }
+            getEventHubLabel={getEventHubLabel}
+            onEdit={handleEditEvent}
+            onAssign={openAssign}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onDuplicateReview={handleOpenDuplicateReview}
+            showHubBadge
+          />
         </div>
       )}
         </>

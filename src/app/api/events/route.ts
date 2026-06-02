@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
     const source = searchParams.get('source');
     const sort = searchParams.get('sort') || 'date';
     const includeHubEvents = searchParams.get('includeHubEvents') === 'true';
+    /** Admin only: `main` = no hub, `hub` = hub-assigned only */
+    const hubScope = searchParams.get('hubScope');
 
     const session = await auth();
     const isAdmin = (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin === true;
@@ -26,6 +28,12 @@ export async function GET(request: NextRequest) {
       includeHubEvents && isAdmin
         ? { status: status || 'PUBLISHED' }
         : mainCalendarEventWhere(status || 'PUBLISHED');
+
+    if (isAdmin && includeHubEvents && hubScope === 'hub') {
+      baseWhere.hubId = { not: null };
+    } else if (isAdmin && includeHubEvents && hubScope === 'main') {
+      baseWhere.hubId = null;
+    }
 
     // Text search: title, description, location (case-insensitive)
     if (q) {

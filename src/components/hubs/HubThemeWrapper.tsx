@@ -16,7 +16,10 @@ export default function HubThemeWrapper({ theme, children, className = '' }: Hub
   };
 
   return (
-    <div className={`hub-themed min-h-screen ${className}`} style={style}>
+    <div
+      className={`hub-themed min-h-screen text-tmc-ink ${className}`}
+      style={{ ...style, colorScheme: 'light' }}
+    >
       {children}
     </div>
   );

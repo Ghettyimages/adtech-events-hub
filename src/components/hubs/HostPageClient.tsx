@@ -51,33 +51,35 @@ export default function HostPageClient({
     <HubThemeWrapper theme={theme}>
       <div className="container mx-auto px-4 py-6 md:py-8">
         <nav className="mb-6 text-sm">
-          <Link href={`/hubs/${hubSlug}`} className="text-tmc-blue hover:underline">
+          <Link href={`/hubs/${hubSlug}`} className="text-tmc-blue font-medium hover:underline">
             {hubName}
           </Link>
-          <span className="mx-2 text-gray-400">/</span>
-          <span className="text-gray-600 dark:text-gray-400">{host.name}</span>
+          <span className="mx-2 text-tmc-muted">/</span>
+          <span className="text-tmc-ink font-semibold">{host.name}</span>
         </nav>
 
-        <header className="flex flex-col md:flex-row md:items-start gap-6 mb-8">
+        <header className="flex flex-col md:flex-row md:items-start gap-6 mb-8 rounded-xl border border-tmc-border bg-white/80 backdrop-blur-sm p-5 md:p-6 shadow-sm">
           <div className="flex items-start gap-4 flex-1">
             {host.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={host.logoUrl} alt="" className="h-16 w-16 object-contain rounded" />
             ) : (
               <div
-                className="h-16 w-16 rounded-full flex items-center justify-center text-2xl font-bold text-white"
+                className="h-16 w-16 rounded-full flex items-center justify-center text-2xl font-bold text-tmc-navy shadow-sm"
                 style={{ background: 'var(--hub-accent, #C9A227)' }}
               >
                 {host.name.charAt(0)}
               </div>
             )}
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">{host.name}</h1>
-              <p className="text-gray-500 dark:text-gray-400 mt-1">
+              <h1 className="text-2xl md:text-4xl font-bold text-tmc-navy tracking-tight">
+                {host.name}
+              </h1>
+              <p className="text-tmc-muted font-medium mt-1">
                 {host.eventCount} {host.eventCount === 1 ? 'event' : 'events'}
               </p>
               {host.description && (
-                <p className="mt-2 text-gray-600 dark:text-gray-300 max-w-2xl">{host.description}</p>
+                <p className="mt-2 text-tmc-muted max-w-2xl leading-relaxed">{host.description}</p>
               )}
               {host.websiteUrl && (
                 <a

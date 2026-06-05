@@ -1,6 +1,7 @@
 /**
  * Re-exports from @/lib/eventTemporal for backward compatibility.
  */
+import type { Event } from '@prisma/client';
 import {
   isEventPast,
   formatForDisplay,
@@ -10,6 +11,7 @@ import {
   buildGoogleCalendarSubscribeUrl,
   isAllDayEvent,
   TEMPORAL_KIND,
+  DEFAULT_TIMED_ZONE,
 } from '@/lib/eventTemporal';
 
 export {
@@ -21,14 +23,19 @@ export {
   isAllDayEvent,
 };
 
-/** @deprecated Use formatForDisplay(date, event) with full event row when possible */
+type DisplayTemporal = Pick<Event, 'temporalKind' | 'timezone'>;
+
 export function formatEventDateForDisplay(
   date: Date | string,
-  isAllDay: boolean,
-  _isEndDate = false
+  eventOrIsAllDay: DisplayTemporal | boolean,
+  isEndDate = false
 ): string {
-  return formatForDisplay(date, {
-    temporalKind: isAllDay ? TEMPORAL_KIND.ALL_DAY : TEMPORAL_KIND.TIMED,
-    timezone: isAllDay ? null : 'America/New_York',
-  });
+  const event: DisplayTemporal =
+    typeof eventOrIsAllDay === 'boolean'
+      ? {
+          temporalKind: eventOrIsAllDay ? TEMPORAL_KIND.ALL_DAY : TEMPORAL_KIND.TIMED,
+          timezone: eventOrIsAllDay ? null : DEFAULT_TIMED_ZONE,
+        }
+      : eventOrIsAllDay;
+  return formatForDisplay(date, event, isEndDate);
 }

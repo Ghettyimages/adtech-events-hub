@@ -28,9 +28,14 @@ Hub-scoped events are excluded from the main calendar and FULL iCal feed by defa
 ## Admin
 
 - **Festival Hubs** tab: status, hosts list, link to public page
+- **Host events**: expand **Events (N)** under any host to view/edit published and pending events (opens the same edit modal as the Events tab)
+- **Bulk fill**: under each host, use **Bulk fill fields** to set URL, location, or source for many events at once (`only fill empty` or `overwrite all`; respects All/Published/Pending scope). **Tags**: add tags (skips if already present) or remove specific tags (other tags unchanged)
+- **Schedule import**: optional **Event page URL** is stored on each event’s `url` field; host name is stored as `source`
 - CSV columns: `hub_slug`, `host_slug`
 - Scrape POST body: `hubSlug`, `hostSlug`
 - Assign event: `PATCH /api/admin/events/[id]/hub`
+- List host events: `GET /api/admin/hub-hosts/[id]/events`
+- Bulk update host events: `PATCH /api/admin/hub-hosts/[id]/events/bulk`
 
 ## Seed
 

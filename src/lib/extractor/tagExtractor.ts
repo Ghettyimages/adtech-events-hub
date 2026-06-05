@@ -135,3 +135,41 @@ export function normalizeTags(tags: string[]): string[] {
   return Array.from(new Set(normalized)).sort();
 }
 
+/** Parse tags JSON column from the database. */
+export function parseStoredTags(tags: string | null | undefined): string[] {
+  if (!tags) return [];
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed) ? normalizeTags(parsed.map(String)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Add and/or remove tags without replacing unrelated tags.
+ * - addTags: appended only when not already present
+ * - removeTags: removed by normalized match; other tags kept
+ */
+export function applyBulkTagChanges(
+  currentTags: string[],
+  addTags: string[],
+  removeTags: string[]
+): { tags: string[]; changed: boolean } {
+  const before = normalizeTags(currentTags);
+  const removeSet = new Set(normalizeTags(removeTags));
+  const next = before.filter((tag) => !removeSet.has(tag));
+  let changed = next.length !== before.length;
+
+  const present = new Set(next);
+  for (const tag of normalizeTags(addTags)) {
+    if (!present.has(tag)) {
+      next.push(tag);
+      present.add(tag);
+      changed = true;
+    }
+  }
+
+  return { tags: normalizeTags(next), changed };
+}
+

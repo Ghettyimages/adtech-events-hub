@@ -18,6 +18,8 @@ export type TemporalKind = (typeof TEMPORAL_KIND)[keyof typeof TEMPORAL_KIND];
 
 export const DEFAULT_TIMED_ZONE = 'America/New_York';
 
+export const FESTIVAL_HUB_DEFAULT_ZONE = 'Europe/Paris';
+
 export type EventTemporalRow = {
   start: Date;
   end: Date;
@@ -51,9 +53,10 @@ export type GoogleCalendarPayload = {
 };
 
 export type ICalEventShape = {
-  start: Date;
-  end: Date;
+  start: Date | DateTime;
+  end: Date | DateTime;
   allDay: boolean;
+  timezone?: string;
 };
 
 export type CsvTemporalRow = {
@@ -72,6 +75,104 @@ export type RepairProjection = NormalizedEventTemporal & {
 };
 
 // --- helpers ---
+
+/** Resolve IANA zone: event field → hub default → app default. */
+export function resolveEventTimezone(
+  event: { timezone?: string | null },
+  hubTimezone?: string | null
+): string {
+  const eventTz = event.timezone?.trim();
+  if (eventTz) return eventTz;
+  const hubTz = hubTimezone?.trim();
+  if (hubTz) return hubTz;
+  return DEFAULT_TIMED_ZONE;
+}
+
+/** Hub ingest: coerce event timezone to hub timezone (festival wall-clock source of truth). */
+export function coerceHubEventTimezone(
+  timezone: string | null | undefined,
+  hubTimezone: string | null | undefined
+): { timezone: string; wasOverwritten: boolean } {
+  const hubTz = hubTimezone?.trim();
+  if (!hubTz) {
+    return {
+      timezone: timezone?.trim() || DEFAULT_TIMED_ZONE,
+      wasOverwritten: false,
+    };
+  }
+  const eventTz = timezone?.trim();
+  if (!eventTz || eventTz !== hubTz) {
+    return { timezone: hubTz, wasOverwritten: Boolean(eventTz && eventTz !== hubTz) };
+  }
+  return { timezone: hubTz, wasOverwritten: false };
+}
+
+/** UTC instant → wall-clock string for Google Calendar API (no offset suffix). */
+export function utcInstantToWallClockDateTime(date: Date, zone: string): string {
+  return DateTime.fromJSDate(date, { zone: 'utc' })
+    .setZone(zone)
+    .toFormat("yyyy-MM-dd'T'HH:mm:ss");
+}
+
+/** Civil day key (YYYY-MM-DD) in the given IANA zone. */
+export function civilDayKeyInZone(date: Date, zone: string): string {
+  return DateTime.fromJSDate(date, { zone: 'utc' }).setZone(zone).toFormat('yyyy-MM-dd');
+}
+
+/** Format a civil day header in the given zone, e.g. "Monday, June 22". */
+export function formatCivilDayHeader(ymd: string, zone: string): string {
+  return DateTime.fromISO(ymd, { zone }).toFormat('EEEE, MMMM d');
+}
+
+/** True when normalized temporal fields match what is already stored. */
+export function storedTemporalEquals(
+  existing: EventTemporalRow,
+  normalized: NormalizedEventTemporal
+): boolean {
+  const existingKind =
+    existing.temporalKind === TEMPORAL_KIND.TIMED || existing.temporalKind === TEMPORAL_KIND.ALL_DAY
+      ? existing.temporalKind
+      : inferTemporalKindFromLegacy(existing.timezone);
+
+  const allDayStartEqual =
+    (existing.allDayStartDate?.getTime() ?? null) === (normalized.allDayStartDate?.getTime() ?? null);
+  const allDayEndEqual =
+    (existing.allDayEndDate?.getTime() ?? null) === (normalized.allDayEndDate?.getTime() ?? null);
+
+  return (
+    existingKind === normalized.temporalKind &&
+    existing.start.getTime() === normalized.start.getTime() &&
+    existing.end.getTime() === normalized.end.getTime() &&
+    (existing.timezone?.trim() || null) === (normalized.timezone?.trim() || null) &&
+    allDayStartEqual &&
+    allDayEndEqual
+  );
+}
+
+/**
+ * Repair hub timed event: reinterpret wall-clock from the stored (possibly wrong) zone
+ * into the hub zone, then re-normalize.
+ */
+export function repairHubTimedTemporal(
+  event: EventTemporalRow,
+  hubTimezone: string,
+  sourceZone?: string | null
+): NormalizedEventTemporal {
+  const fromZone = sourceZone?.trim() || event.timezone?.trim() || DEFAULT_TIMED_ZONE;
+  const startWall = DateTime.fromJSDate(event.start, { zone: 'utc' })
+    .setZone(fromZone)
+    .toFormat("yyyy-MM-dd'T'HH:mm:ss");
+  const endWall = DateTime.fromJSDate(event.end, { zone: 'utc' })
+    .setZone(fromZone)
+    .toFormat("yyyy-MM-dd'T'HH:mm:ss");
+
+  return normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: startWall,
+    end: endWall,
+    timezone: hubTimezone,
+  });
+}
 
 export function isAllDayEvent(event: {
   temporalKind?: string | null;
@@ -301,7 +402,7 @@ export function projectRepairFromLegacyRow(event: EventTemporalRow): RepairProje
 export function formatForDisplay(
   date: Date | string,
   event: Pick<Event, 'temporalKind' | 'timezone'>,
-  _isEndDate = false
+  isEndDate = false
 ): string {
   const isAllDay = isAllDayEvent(event);
   const d = new Date(date);
@@ -312,7 +413,12 @@ export function formatForDisplay(
     const utcDate = new Date(year, month, day);
     return format(utcDate, 'PP');
   }
-  return format(d, 'PPp');
+  const zone = resolveEventTimezone(event);
+  const dt = DateTime.fromJSDate(d, { zone: 'utc' }).setZone(zone);
+  if (isEndDate) {
+    return dt.toFormat('h:mm a ZZZZ');
+  }
+  return dt.toFormat('ccc, LLL d · h:mm a ZZZZ');
 }
 
 export function isEventPast(event: { end: Date | string }): boolean {
@@ -382,17 +488,17 @@ export function toGoogleCalendarPayload(event: EventTemporalRow & { title?: stri
     };
   }
 
-  const zone = event.timezone?.trim() || DEFAULT_TIMED_ZONE;
+  const zone = resolveEventTimezone(event);
   const start = new Date(event.start);
   const end = new Date(event.end);
 
   return {
     start: {
-      dateTime: start.toISOString(),
+      dateTime: utcInstantToWallClockDateTime(start, zone),
       timeZone: zone,
     },
     end: {
-      dateTime: end.toISOString(),
+      dateTime: utcInstantToWallClockDateTime(end, zone),
       timeZone: zone,
     },
   };
@@ -410,9 +516,16 @@ export function toICalEvent(event: EventTemporalRow): ICalEventShape {
     const endMonth = end.getUTCMonth();
     const endDay = end.getUTCDate();
     end = new Date(Date.UTC(endYear, endMonth, endDay + 1, 12, 0, 0, 0));
+    return { start, end, allDay: true };
   }
 
-  return { start, end, allDay: isAllDay };
+  const zone = resolveEventTimezone(event);
+  return {
+    start: DateTime.fromJSDate(start, { zone: 'utc' }).setZone(zone),
+    end: DateTime.fromJSDate(end, { zone: 'utc' }).setZone(zone),
+    allDay: false,
+    timezone: zone,
+  };
 }
 
 // --- CSV ---
@@ -485,8 +598,11 @@ export function buildGoogleCalendarUrl(event: Event): string {
     const endCompact = payload.end.date.replace(/-/g, '');
     params.set('dates', `${startCompact}/${endCompact}`);
   } else if (payload.start.dateTime && payload.end.dateTime) {
-    const fmt = (iso: string) =>
-      DateTime.fromISO(iso, { zone: 'utc' }).toFormat("yyyyMMdd'T'HHmmss'Z'");
+    const zone = event.timezone?.trim() || DEFAULT_TIMED_ZONE;
+    const fmt = (wallClock: string) => {
+      const dt = DateTime.fromISO(wallClock, { zone });
+      return dt.toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
+    };
     params.set('dates', `${fmt(payload.start.dateTime)}/${fmt(payload.end.dateTime)}`);
   }
 
@@ -556,6 +672,23 @@ export function eventContainedInDateRange(
     if (eventEnd > filterEnd) return false;
   }
   return true;
+}
+
+/** Normalize ingest input; hub events use hub timezone as source of truth. */
+export function normalizeEventForHubIngest(
+  input: EventTemporalInput,
+  hubTimezone: string | null | undefined
+): { normalized: NormalizedEventTemporal; timezoneOverwritten: boolean } {
+  const coerced = coerceHubEventTimezone(input.timezone, hubTimezone);
+  const kind = input.temporalKind ?? inferTemporalKindFromLegacy(coerced.timezone);
+
+  const normalized = normalizeEventForWrite({
+    ...input,
+    temporalKind: kind,
+    timezone: kind === TEMPORAL_KIND.TIMED ? coerced.timezone : null,
+  });
+
+  return { normalized, timezoneOverwritten: coerced.wasOverwritten };
 }
 
 export function mergeAndNormalizeTemporal(

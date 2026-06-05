@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { Event } from '@prisma/client';
+import HostEventsSection from '@/components/admin/HostEventsSection';
 
 interface HubHost {
   id: string;
@@ -13,6 +15,7 @@ interface HubHost {
   sourceAlias: string | null;
   featured: boolean;
   sortOrder: number;
+  _count: { events: number };
 }
 
 interface HubRow {
@@ -85,7 +88,19 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export default function AdminHubsPanel() {
+interface AdminHubsPanelProps {
+  onEditEvent?: (event: Event) => void;
+  onDeleteEvent?: (eventId: string) => Promise<void>;
+  onBulkApplied?: () => void;
+  eventListRefreshKey?: number;
+}
+
+export default function AdminHubsPanel({
+  onEditEvent,
+  onDeleteEvent,
+  onBulkApplied,
+  eventListRefreshKey = 0,
+}: AdminHubsPanelProps) {
   const [hubs, setHubs] = useState<HubRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -107,6 +122,9 @@ export default function AdminHubsPanel() {
   // Host edit (keyed by hostId)
   const [editingHostId, setEditingHostId] = useState<string | null>(null);
   const [hostEdit, setHostEdit] = useState<HostForm>(EMPTY_HOST_FORM);
+
+  // Host events dropdown (keyed by hostId)
+  const [expandedEventsHostId, setExpandedEventsHostId] = useState<string | null>(null);
 
   const flash = useCallback((msg: string) => {
     setMessage(msg);
@@ -259,6 +277,7 @@ export default function AdminHubsPanel() {
   // ---- Host edit ----
   function startEditHost(host: HubHost) {
     setEditingHostId(host.id);
+    setExpandedEventsHostId(host.id);
     setHostEdit({
       slug: host.slug,
       name: host.name,
@@ -300,8 +319,30 @@ export default function AdminHubsPanel() {
     const ok = await send(`/api/admin/hub-hosts/${host.id}`, 'DELETE');
     if (ok) {
       flash('Host deleted');
+      if (expandedEventsHostId === host.id) setExpandedEventsHostId(null);
       fetchHubs();
     }
+  }
+
+  function toggleEventsPanel(hostId: string) {
+    setExpandedEventsHostId((current) => (current === hostId ? null : hostId));
+  }
+
+  function renderHostEventsSection(host: HubHost, hubSlug: string, forceExpanded = false) {
+    const expanded = forceExpanded || expandedEventsHostId === host.id;
+    return (
+      <HostEventsSection
+        hostId={host.id}
+        hostName={host.name}
+        hubSlug={hubSlug}
+        hostSlug={host.slug}
+        expanded={expanded}
+        onEditEvent={onEditEvent}
+        onDeleteEvent={onDeleteEvent}
+        onBulkApplied={onBulkApplied}
+        refreshKey={eventListRefreshKey}
+      />
+    );
   }
 
   if (loading) {
@@ -312,10 +353,9 @@ export default function AdminHubsPanel() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-gray-600 dark:text-gray-400 max-w-2xl">
-          Manage festival hubs and hosts. Assign events to a hub from the Events tab via hub fields on
-          edit, or use CSV columns{' '}
-          <code className="bg-gray-100 dark:bg-gray-800 px-1">hub_slug</code> and{' '}
-          <code className="bg-gray-100 dark:bg-gray-800 px-1">host_slug</code>.
+          Manage festival hubs and hosts. Expand <strong>Events</strong> under any host to view and
+          edit its published and pending events. Scrape, CSV import, and schedule import remain on
+          the Events tab.
         </p>
         <button
           onClick={() => {
@@ -754,42 +794,57 @@ export default function AdminHubsPanel() {
                         Cancel
                       </button>
                     </div>
+                    {renderHostEventsSection(host, hub.slug, true)}
                   </div>
                 ) : (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-gray-800 dark:text-gray-200">
-                      {host.name} <span className="text-gray-400">({host.slug})</span>
-                      {host.featured && (
-                        <span className="ml-2 text-xs bg-amber-100 text-amber-800 px-1.5 rounded">
-                          featured
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-gray-800 dark:text-gray-200">
+                        {host.name} <span className="text-gray-400">({host.slug})</span>
+                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                          {host._count?.events ?? 0} events
                         </span>
-                      )}
-                      {host.sourceAlias && (
-                        <span className="ml-2 text-gray-400 text-xs">source: {host.sourceAlias}</span>
-                      )}
-                    </span>
-                    <span className="flex items-center gap-3 text-xs">
-                      <button
-                        onClick={() => toggleFeatured(host)}
-                        disabled={busy}
-                        className="text-amber-600 hover:underline"
-                      >
-                        {host.featured ? 'Unfeature' : 'Feature'}
-                      </button>
-                      <button
-                        onClick={() => startEditHost(host)}
-                        className="text-blue-600 hover:underline"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deleteHost(host)}
-                        disabled={busy}
-                        className="text-red-600 hover:underline"
-                      >
-                        Delete
-                      </button>
-                    </span>
+                        {host.featured && (
+                          <span className="ml-2 text-xs bg-amber-100 text-amber-800 px-1.5 rounded">
+                            featured
+                          </span>
+                        )}
+                        {host.sourceAlias && (
+                          <span className="ml-2 text-gray-400 text-xs">source: {host.sourceAlias}</span>
+                        )}
+                      </span>
+                      <span className="flex items-center gap-3 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => toggleEventsPanel(host.id)}
+                          className="text-gray-700 dark:text-gray-300 hover:underline font-medium"
+                        >
+                          {expandedEventsHostId === host.id ? '▾' : '▸'} Events (
+                          {host._count?.events ?? 0})
+                        </button>
+                        <button
+                          onClick={() => toggleFeatured(host)}
+                          disabled={busy}
+                          className="text-amber-600 hover:underline"
+                        >
+                          {host.featured ? 'Unfeature' : 'Feature'}
+                        </button>
+                        <button
+                          onClick={() => startEditHost(host)}
+                          className="text-blue-600 hover:underline"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => deleteHost(host)}
+                          disabled={busy}
+                          className="text-red-600 hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </span>
+                    </div>
+                    {renderHostEventsSection(host, hub.slug)}
                   </div>
                 )}
               </li>

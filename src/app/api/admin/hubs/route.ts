@@ -20,7 +20,10 @@ export async function GET() {
   const hubs = await prisma.eventHub.findMany({
     orderBy: [{ sortOrder: 'asc' }, { start: 'desc' }],
     include: {
-      hosts: { orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] },
+      hosts: {
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        include: { _count: { select: { events: true } } },
+      },
       _count: { select: { events: true } },
     },
   });

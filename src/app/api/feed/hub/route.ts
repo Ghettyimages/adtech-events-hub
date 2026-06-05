@@ -4,6 +4,8 @@ import ical, { ICalCalendar } from 'ical-generator';
 import { parseFilter, type Filter } from '@/lib/filters';
 import { applyFilter } from '@/lib/filters-server';
 import { getHubFeedPrefix, parseHubTheme } from '@/lib/hubs';
+import { addEventToICalCalendar } from '@/lib/icalEvent';
+import { FESTIVAL_HUB_DEFAULT_ZONE } from '@/lib/eventTemporal';
 
 export async function GET(request: NextRequest) {
   try {
@@ -46,12 +48,18 @@ export async function GET(request: NextRequest) {
       hubSlugs.add(filter.hubSlug);
     }
 
+    let feedTimezone = FESTIVAL_HUB_DEFAULT_ZONE;
+
     for (const slug of hubSlugs) {
       const hub = await prisma.eventHub.findUnique({
         where: { slug },
-        select: { id: true, name: true, theme: true },
+        select: { id: true, name: true, theme: true, timezone: true },
       });
       if (!hub) continue;
+
+      if (hub.timezone) {
+        feedTimezone = hub.timezone;
+      }
 
       const events = await prisma.event.findMany({
         where: { hubId: hub.id, status: 'PUBLISHED' },
@@ -84,33 +92,12 @@ export async function GET(request: NextRequest) {
     const calendar: ICalCalendar = ical({
       name: 'The Media Calendar - Festival Hub',
       description: 'Your festival hub event subscriptions',
-      timezone: process.env.DEFAULT_TIMEZONE || 'America/New_York',
+      timezone: feedTimezone,
       url: process.env.SITE_URL || 'http://localhost:3000',
     });
 
     finalEvents.forEach((event) => {
-      const endDate = new Date(event.end);
-      const exclusiveEndDate = new Date(
-        Date.UTC(
-          endDate.getUTCFullYear(),
-          endDate.getUTCMonth(),
-          endDate.getUTCDate() + 1,
-          12,
-          0,
-          0,
-          0
-        )
-      );
-
-      calendar.createEvent({
-        start: new Date(event.start),
-        end: exclusiveEndDate,
-        summary: event.title,
-        description: event.description || undefined,
-        location: event.location || undefined,
-        url: event.url || undefined,
-        allDay: true,
-      });
+      addEventToICalCalendar(calendar, event);
     });
 
     const icsContent = calendar.toString();

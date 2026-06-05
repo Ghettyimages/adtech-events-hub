@@ -213,6 +213,7 @@ export default function AdminPage() {
   });
   const [sortBy, setSortBy] = useState<'name' | 'usage' | 'created'>('name');
   const [pastEventsExpanded, setPastEventsExpanded] = useState(false);
+  const [hostEventsRefreshKey, setHostEventsRefreshKey] = useState(0);
 
   // Event list search/filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -1213,6 +1214,7 @@ export default function AdminPage() {
       await fetchHubPendingEvents();
       await fetchHubs();
       await fetch('/api/revalidate', { method: 'POST' });
+      setHostEventsRefreshKey((k) => k + 1);
       setEditingEvent(null);
       setEditFormData({});
       setEditSelectedTags([]);
@@ -1238,7 +1240,11 @@ export default function AdminPage() {
       if (!res.ok) throw new Error('Failed to delete event');
 
       await fetchPublishedEvents();
+      await fetchPendingEvents();
+      await fetchHubPendingEvents();
+      await fetchHubs();
       await fetch('/api/revalidate', { method: 'POST' });
+      setHostEventsRefreshKey((k) => k + 1);
       setFeedback('success', 'Event deleted successfully.');
     } catch (err: any) {
       setFeedback('error', err.message || 'Failed to delete event');
@@ -1409,14 +1415,14 @@ export default function AdminPage() {
             </div>
             <div>
               <label htmlFor="schedule-source-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Source URL (optional)
+                Event page URL (optional)
               </label>
               <input
                 id="schedule-source-url"
                 type="url"
                 value={scheduleSourceUrl}
                 onChange={(e) => setScheduleSourceUrl(e.target.value)}
-                placeholder="https://..."
+                placeholder="https://... (sets each event URL field)"
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
               />
             </div>
@@ -1928,7 +1934,21 @@ export default function AdminPage() {
       </div>
 
       {/* Festival Hubs Tab Content */}
-      {adminTab === 'hubs' && <AdminHubsPanel />}
+      {adminTab === 'hubs' && (
+        <AdminHubsPanel
+          onEditEvent={handleEditEvent}
+          onDeleteEvent={handleDeleteEvent}
+          onBulkApplied={async () => {
+            setHostEventsRefreshKey((k) => k + 1);
+            await fetchPublishedEvents();
+            await fetchPendingEvents();
+            await fetchHubPendingEvents();
+            await fetchHubs();
+            await fetch('/api/revalidate', { method: 'POST' });
+          }}
+          eventListRefreshKey={hostEventsRefreshKey}
+        />
+      )}
 
       {/* Events Tab Content */}
       {adminTab === 'events' && (

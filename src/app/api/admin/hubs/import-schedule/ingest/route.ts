@@ -18,7 +18,8 @@ function toExtractedEvents(
   hostName: string,
   sourceUrl?: string
 ): ExtractedEvent[] {
-  const source = sourceUrl?.trim() || hostName.trim();
+  const source = hostName.trim();
+  const url = sourceUrl?.trim() || undefined;
   return events.map((e) => ({
     title: e.title,
     description: e.description ?? undefined,
@@ -28,6 +29,7 @@ function toExtractedEvents(
     timezone: e.timezone,
     tags: e.tags,
     source,
+    url,
     date_status: 'confirmed' as const,
     location_status: e.location ? ('confirmed' as const) : ('tbd' as const),
   }));

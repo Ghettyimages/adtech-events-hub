@@ -1,9 +1,16 @@
 'use client';
 
 import { useMemo } from 'react';
-import { format, isSameDay } from 'date-fns';
-import { formatEventDateForDisplay, isAllDayEvent } from '@/lib/events';
-import { buildGoogleCalendarUrl } from '@/lib/events';
+import {
+  formatEventDateForDisplay,
+  isAllDayEvent,
+  buildGoogleCalendarUrl,
+} from '@/lib/events';
+import {
+  civilDayKeyInZone,
+  formatCivilDayHeader,
+  resolveEventTimezone,
+} from '@/lib/eventTemporal';
 import type { Event } from '@prisma/client';
 
 export interface HubEventRow {
@@ -22,28 +29,29 @@ export interface HubEventRow {
 
 interface HostTimelineProps {
   events: HubEventRow[];
+  hubTimezone?: string | null;
   onSelectEvent?: (event: HubEventRow) => void;
 }
 
-export default function HostTimeline({ events, onSelectEvent }: HostTimelineProps) {
+export default function HostTimeline({ events, hubTimezone, onSelectEvent }: HostTimelineProps) {
   const byDay = useMemo(() => {
-    const groups: { day: Date; events: HubEventRow[] }[] = [];
+    const groups: { dayKey: string; events: HubEventRow[] }[] = [];
     const sorted = [...events].sort(
       (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
     );
 
     for (const event of sorted) {
-      const day = new Date(event.start);
-      day.setHours(0, 0, 0, 0);
+      const zone = resolveEventTimezone(event, hubTimezone);
+      const dayKey = civilDayKeyInZone(new Date(event.start), zone);
       const last = groups[groups.length - 1];
-      if (last && isSameDay(last.day, day)) {
+      if (last && last.dayKey === dayKey) {
         last.events.push(event);
       } else {
-        groups.push({ day, events: [event] });
+        groups.push({ dayKey, events: [event] });
       }
     }
     return groups;
-  }, [events]);
+  }, [events, hubTimezone]);
 
   if (events.length === 0) {
     return (
@@ -55,22 +63,22 @@ export default function HostTimeline({ events, onSelectEvent }: HostTimelineProp
 
   return (
     <div className="space-y-8">
-      {byDay.map(({ day, events: dayEvents }) => (
-        <section key={day.toISOString()}>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-tmc-navy mb-3 border-b border-tmc-border pb-2">
-            {format(day, 'EEEE, MMMM d')}
-          </h3>
-          <ul className="space-y-3">
-            {dayEvents.map((event) => {
-              const isAllDay = isAllDayEvent(event);
-              return (
+      {byDay.map(({ dayKey, events: dayEvents }) => {
+        const headerZone = resolveEventTimezone(dayEvents[0], hubTimezone);
+        return (
+          <section key={dayKey}>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-tmc-navy mb-3 border-b border-tmc-border pb-2">
+              {formatCivilDayHeader(dayKey, headerZone)}
+            </h3>
+            <ul className="space-y-3">
+              {dayEvents.map((event) => (
                 <li
                   key={event.id}
                   className="flex flex-col gap-4 p-4 md:p-5 rounded-xl bg-tmc-navy text-white shadow-md border border-tmc-blue/30"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-5">
-                    <div className="sm:w-40 shrink-0 text-sm font-semibold text-tmc-cyan-soft">
-                      {formatEventDateForDisplay(event.start, isAllDay, false)}
+                    <div className="sm:w-48 shrink-0 text-sm font-semibold text-tmc-cyan-soft">
+                      {formatEventDateForDisplay(event.start, event, false)}
                     </div>
                     <div className="flex-1 min-w-0">
                       {onSelectEvent ? (
@@ -122,11 +130,11 @@ export default function HostTimeline({ events, onSelectEvent }: HostTimelineProp
                     )}
                   </div>
                 </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
+              ))}
+            </ul>
+          </section>
+        );
+      })}
     </div>
   );
 }

@@ -9,11 +9,12 @@ export function addEventToICalCalendar(
     'title' | 'description' | 'location' | 'url' | 'start' | 'end' | 'timezone' | 'temporalKind' | 'allDayStartDate' | 'allDayEndDate'
   >
 ) {
-  const { start, end, allDay } = toICalEvent(event);
+  const { start, end, allDay, timezone } = toICalEvent(event);
   calendar.createEvent({
     start,
     end,
     allDay,
+    timezone: allDay ? undefined : timezone,
     summary: event.title,
     description: event.description || undefined,
     location: event.location || undefined,

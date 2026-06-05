@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { updateEventSchema, updateEventStatusSchema } from '@/lib/validation';
 import { processAllFilterSubscriptionsForEvent } from '@/lib/filters-server';
-import { mergeAndNormalizeTemporal, temporalFieldsForPrisma } from '@/lib/eventTemporal';
+import {
+  mergeAndNormalizeTemporal,
+  storedTemporalEquals,
+  temporalFieldsForPrisma,
+} from '@/lib/eventTemporal';
 
 export async function GET(
   request: NextRequest,
@@ -160,20 +164,18 @@ export async function PATCH(
 
     if (temporalInputTouched) {
       try {
-        Object.assign(
-          updateData,
-          temporalFieldsForPrisma(
-            mergeAndNormalizeTemporal(
-              {
-                temporalKind: validatedData.temporalKind,
-                start: validatedData.start,
-                end: validatedData.end,
-                timezone: validatedData.timezone,
-              },
-              existingEvent
-            )
-          )
+        const normalized = mergeAndNormalizeTemporal(
+          {
+            temporalKind: validatedData.temporalKind,
+            start: validatedData.start,
+            end: validatedData.end,
+            timezone: validatedData.timezone,
+          },
+          existingEvent
         );
+        if (!storedTemporalEquals(existingEvent, normalized)) {
+          Object.assign(updateData, temporalFieldsForPrisma(normalized));
+        }
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : 'Invalid date format';
         return NextResponse.json({ error: message }, { status: 400 });

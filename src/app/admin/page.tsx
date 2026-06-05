@@ -22,8 +22,12 @@ import { DateTime } from 'luxon';
  * Formats a date for display, handling all-day events correctly
  * Uses the shared formatEventDateForDisplay function for consistency
  */
-function formatEventDate(date: Date | string, isAllDay: boolean, isEndDate: boolean = false): string {
-  return formatEventDateForDisplay(date, isAllDay, isEndDate);
+function formatEventDate(
+  date: Date | string,
+  event: Pick<Event, 'temporalKind' | 'timezone'>,
+  isEndDate: boolean = false
+): string {
+  return formatEventDateForDisplay(date, event, isEndDate);
 }
 
 interface MonitoredUrl {
@@ -967,7 +971,8 @@ export default function AdminPage() {
       startFormatted = startYmd;
       endFormatted = endYmd;
     } else {
-      const zone = event.timezone?.trim() || 'America/New_York';
+      const hubForEdit = event.hubId ? hubsList.find((h) => h.id === event.hubId) : undefined;
+      const zone = event.timezone?.trim() || hubForEdit?.timezone?.trim() || 'America/New_York';
       startFormatted = DateTime.fromJSDate(startDate, { zone: 'utc' })
         .setZone(zone)
         .toFormat("yyyy-MM-dd'T'HH:mm");
@@ -1133,9 +1138,14 @@ export default function AdminPage() {
         ? editFormData.start.split('T')[0]
         : editFormData.start;
       updateData.end = isAllDay ? editFormData.end.split('T')[0] : editFormData.end;
+      const editHubRecord = editHub.hubSlug
+        ? hubsList.find((h) => h.slug === editHub.hubSlug)
+        : undefined;
       updateData.timezone = isAllDay
         ? null
-        : editFormData.timezone?.trim() || 'America/New_York';
+        : editFormData.timezone?.trim() ||
+          editHubRecord?.timezone?.trim() ||
+          'America/New_York';
 
       // If approving, set status to PUBLISHED
       if (andApprove) {
@@ -1755,7 +1765,7 @@ export default function AdminPage() {
                       {event.start && (
                         <div>
                           <strong>Start:</strong>{' '}
-                          {formatEventDate(event.start, isAllDayEvent(event), false)}
+                          {formatEventDate(event.start, event, false)}
                           {event.date_status && (
                             <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
                               event.date_status === 'confirmed'
@@ -1769,7 +1779,7 @@ export default function AdminPage() {
                       )}
                       {event.end && (
                         <div>
-                          <strong>End:</strong> {formatEventDate(event.end, isAllDayEvent(event), true)}
+                          <strong>End:</strong> {formatEventDate(event.end, event, true)}
                         </div>
                       )}
                       {event.location && (
@@ -2169,10 +2179,10 @@ export default function AdminPage() {
                               </div>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                              {formatEventDate(event.start, isAllDayEvent(event), false)}
+                              {formatEventDate(event.start, event, false)}
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                              {formatEventDate(event.end, isAllDayEvent(event), true)}
+                              {formatEventDate(event.end, event, true)}
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                               {event.location || '—'}
@@ -2532,7 +2542,10 @@ export default function AdminPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                          {formatEventDate(event.start, false)}
+                          {formatEventDateForDisplay(event.start, {
+                            temporalKind: TEMPORAL_KIND.TIMED,
+                            timezone: null,
+                          })}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
                           {event.source || '—'}

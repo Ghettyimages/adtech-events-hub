@@ -1,11 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import {
-  formatEventDateForDisplay,
-  isAllDayEvent,
-  buildGoogleCalendarUrl,
-} from '@/lib/events';
+import { formatEventDateForDisplay, buildGoogleCalendarUrl } from '@/lib/events';
 import {
   civilDayKeyInZone,
   formatCivilDayHeader,

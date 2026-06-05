@@ -62,7 +62,18 @@ export async function POST(request: NextRequest) {
     }
     const domain = new URL(url).hostname.replace('www.', '');
     const sourceName = name || domain;
-    const defaultTimezone = process.env.DEFAULT_TIMEZONE || 'America/New_York';
+    let defaultTimezone = process.env.DEFAULT_TIMEZONE || 'America/New_York';
+    let hubTimezone: string | null = null;
+    if (hubSlug) {
+      const hub = await prisma.eventHub.findUnique({
+        where: { slug: hubSlug },
+        select: { timezone: true },
+      });
+      if (hub?.timezone) {
+        hubTimezone = hub.timezone;
+        defaultTimezone = hub.timezone;
+      }
+    }
     const forceGeneric = action === 'generic';
     const forceFirecrawl = action === 'firecrawl';
 
@@ -181,6 +192,7 @@ export async function POST(request: NextRequest) {
     const normalizationResult = await normalize_events({
       events: extractedEvents,
       defaultTimezone,
+      hubTimezone,
     });
 
     if (!normalizationResult.ok || normalizationResult.count === 0) {

@@ -118,11 +118,11 @@ export default function AdminPendingEventList({
                 <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
                   <p>
                     <strong>Start:</strong>{' '}
-                    {formatEventDateForDisplay(event.start, allDay, false)}
+                    {formatEventDateForDisplay(event.start, event, false)}
                   </p>
                   <p>
                     <strong>End:</strong>{' '}
-                    {formatEventDateForDisplay(event.end, allDay, true)}
+                    {formatEventDateForDisplay(event.end, event, true)}
                   </p>
                   {event.location && (
                     <p>

@@ -13,6 +13,7 @@ import EventCard from '@/components/EventCard';
 interface HostPageClientProps {
   hubSlug: string;
   hubName: string;
+  hubTimezone?: string | null;
   theme?: HubTheme;
   host: {
     slug: string;
@@ -28,6 +29,7 @@ interface HostPageClientProps {
 export default function HostPageClient({
   hubSlug,
   hubName,
+  hubTimezone,
   theme,
   host,
   events,
@@ -127,14 +129,11 @@ export default function HostPageClient({
           </button>
         </div>
 
-        {viewMode === 'timeline' ? (
-          <HostTimeline
-            events={events}
-            onSelectEvent={(ev) => setSelectedEvent(ev as unknown as Event)}
-          />
-        ) : (
-          <HostTimeline events={events} onSelectEvent={(ev) => setSelectedEvent(ev as unknown as Event)} />
-        )}
+        <HostTimeline
+          events={events}
+          hubTimezone={hubTimezone}
+          onSelectEvent={(ev) => setSelectedEvent(ev as unknown as Event)}
+        />
 
         {selectedEvent && (
           <EventCard event={selectedEvent} onClose={() => setSelectedEvent(null)} />

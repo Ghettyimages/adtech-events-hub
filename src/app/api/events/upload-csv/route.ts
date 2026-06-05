@@ -8,7 +8,9 @@ import {
 import Papa from 'papaparse';
 import { parse, isValid } from 'date-fns';
 import {
+  TEMPORAL_KIND,
   fromCsvRow,
+  normalizeEventForHubIngest,
   normalizeEventForWrite,
   temporalFieldsForPrisma,
 } from '@/lib/eventTemporal';
@@ -161,22 +163,44 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
+        let rowHubTimezone: string | null = null;
+        const rowHubSlugEarly = row.hub_slug?.trim() || defaultHubSlug;
+        if (rowHubSlugEarly) {
+          const hubForTz = await prisma.eventHub.findUnique({
+            where: { slug: rowHubSlugEarly },
+            select: { timezone: true },
+          });
+          rowHubTimezone = hubForTz?.timezone ?? null;
+        }
+
         let temporal;
         try {
           const input = fromCsvRow({
             start: row.start,
             end: row.end || row.start,
-            timezone: row.timezone,
+            timezone: row.timezone || rowHubTimezone || undefined,
             all_day: row.all_day,
             temporal_kind: row.temporal_kind,
           });
-          temporal = normalizeEventForWrite({
-            ...input,
-            timezone:
-              input.temporalKind === 'TIMED'
-                ? row.timezone?.trim() || 'America/New_York'
-                : null,
-          });
+          if (rowHubTimezone && hasTimeComponent(row.start)) {
+            input.temporalKind = TEMPORAL_KIND.TIMED;
+          }
+          const defaultTz = rowHubTimezone || row.timezone?.trim() || 'America/New_York';
+          if (rowHubTimezone) {
+            temporal = normalizeEventForHubIngest(
+              {
+                ...input,
+                timezone: input.temporalKind === TEMPORAL_KIND.TIMED ? defaultTz : null,
+              },
+              rowHubTimezone
+            ).normalized;
+          } else {
+            temporal = normalizeEventForWrite({
+              ...input,
+              timezone:
+                input.temporalKind === TEMPORAL_KIND.TIMED ? defaultTz : null,
+            });
+          }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           errors.push(`Row ${i + 2}: ${msg}`);

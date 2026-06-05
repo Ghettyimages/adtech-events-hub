@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth-helpers';
 import { parsedScheduleEventSchema } from '@/lib/scheduleParser';
 import { ExtractedEvent } from '@/lib/extractor/schema';
+import { prisma } from '@/lib/db';
 import { normalize_events, ingestScrapedEvents } from '@/lib/tools';
 
 const ingestBodySchema = z.object({
@@ -45,9 +46,16 @@ export async function POST(request: NextRequest) {
     const body = ingestBodySchema.parse(await request.json());
     const extracted = toExtractedEvents(body.events, body.hostName, body.sourceUrl);
 
+    const hub = await prisma.eventHub.findUnique({
+      where: { slug: body.hubSlug },
+      select: { timezone: true },
+    });
+    const hubTimezone = hub?.timezone ?? body.defaultTimezone;
+
     const normalizationResult = await normalize_events({
       events: extracted,
-      defaultTimezone: body.defaultTimezone,
+      defaultTimezone: hubTimezone,
+      hubTimezone,
     });
 
     if (!normalizationResult.ok || normalizationResult.count === 0) {

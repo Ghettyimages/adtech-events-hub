@@ -110,7 +110,7 @@ export async function listHubs(statuses?: HubStatus[]) {
 export async function getHostBySlug(hubSlug: string, hostSlug: string) {
   const hub = await prisma.eventHub.findUnique({
     where: { slug: hubSlug },
-    select: { id: true, slug: true, name: true, theme: true },
+    select: { id: true, slug: true, name: true, theme: true, timezone: true },
   });
   if (!hub) return null;
 

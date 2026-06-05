@@ -12,14 +12,22 @@ import {
 import { parseLocationString } from './extractor/locationExtractor';
 import { extractTags, normalizeTags } from './extractor/tagExtractor';
 import {
+  TEMPORAL_KIND,
   fromCsvRow,
+  normalizeEventForHubIngest,
   normalizeEventForWrite,
   temporalFieldsForPrisma,
 } from './eventTemporal';
 
+function hasTimeInString(s: string): boolean {
+  return /T\d{1,2}:\d{2}/.test(s) || /\d{1,2}:\d{2}/.test(s);
+}
+
 export interface NormalizeEventsInput {
   events: ExtractedEvent[];
   defaultTimezone?: string;
+  /** When set, timed events use hub timezone as source of truth. */
+  hubTimezone?: string | null;
 }
 
 export interface NormalizeEventsResult {
@@ -35,7 +43,8 @@ export interface NormalizeEventsResult {
 export async function normalize_events(
   input: NormalizeEventsInput
 ): Promise<NormalizeEventsResult> {
-  const { events, defaultTimezone = 'America/New_York' } = input;
+  const { events, defaultTimezone = 'America/New_York', hubTimezone } = input;
+  const effectiveDefault = hubTimezone?.trim() || defaultTimezone;
   const normalized: ExtractedEvent[] = [];
   const errors: string[] = [];
 
@@ -82,15 +91,29 @@ export async function normalize_events(
         const input = fromCsvRow({
           start: event.start,
           end: event.end || event.start,
-          timezone: event.timezone || (defaultTimezone ? defaultTimezone : undefined),
+          timezone: event.timezone || effectiveDefault,
         });
-        temporal = normalizeEventForWrite({
-          ...input,
-          timezone:
-            input.temporalKind === 'TIMED'
-              ? event.timezone || defaultTimezone
-              : null,
-        });
+        if (hubTimezone && (hasTimeInString(event.start) || hasTimeInString(event.end || ''))) {
+          input.temporalKind = TEMPORAL_KIND.TIMED;
+        }
+        if (hubTimezone) {
+          const { normalized } = normalizeEventForHubIngest(
+            {
+              ...input,
+              timezone: input.temporalKind === TEMPORAL_KIND.TIMED ? event.timezone || effectiveDefault : null,
+            },
+            hubTimezone
+          );
+          temporal = normalized;
+        } else {
+          temporal = normalizeEventForWrite({
+            ...input,
+            timezone:
+              input.temporalKind === TEMPORAL_KIND.TIMED
+                ? event.timezone || effectiveDefault
+                : null,
+          });
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`Invalid dates for "${event.title}": ${msg}`);
@@ -192,6 +215,7 @@ export async function ingestScrapedEvents(
   let hubId: string | null = null;
   let defaultHostId: string | null = null;
   let hubSlugForTag: string | null = null;
+  let hubTimezone: string | null = null;
 
   if (options.hubSlug) {
     const hub = await prisma.eventHub.findUnique({
@@ -200,6 +224,7 @@ export async function ingestScrapedEvents(
     if (hub) {
       hubId = hub.id;
       hubSlugForTag = hub.slug;
+      hubTimezone = hub.timezone;
       if (options.hostSlug) {
         const host = await prisma.hubHost.findUnique({
           where: { hubId_slug: { hubId: hub.id, slug: options.hostSlug } },
@@ -242,15 +267,29 @@ export async function ingestScrapedEvents(
       const temporalInput = fromCsvRow({
         start: event.start,
         end: event.end,
-        timezone: event.timezone,
+        timezone: event.timezone || hubTimezone || undefined,
       });
-      const temporal = normalizeEventForWrite({
-        ...temporalInput,
-        timezone:
-          temporalInput.temporalKind === 'TIMED'
-            ? event.timezone || 'America/New_York'
-            : null,
-      });
+      if (hubTimezone && (hasTimeInString(event.start) || hasTimeInString(event.end || ''))) {
+        temporalInput.temporalKind = TEMPORAL_KIND.TIMED;
+      }
+      const temporal = hubTimezone
+        ? normalizeEventForHubIngest(
+            {
+              ...temporalInput,
+              timezone:
+                temporalInput.temporalKind === TEMPORAL_KIND.TIMED
+                  ? event.timezone || hubTimezone
+                  : null,
+            },
+            hubTimezone
+          ).normalized
+        : normalizeEventForWrite({
+            ...temporalInput,
+            timezone:
+              temporalInput.temporalKind === TEMPORAL_KIND.TIMED
+                ? event.timezone || 'America/New_York'
+                : null,
+          });
 
       const baseData = {
         title: event.title,
@@ -333,6 +372,27 @@ export async function upsert_events(
         continue;
       }
 
+      let temporal;
+      try {
+        const input = fromCsvRow({
+          start: event.start,
+          end: event.end,
+          timezone: event.timezone,
+        });
+        temporal = normalizeEventForWrite({
+          ...input,
+          timezone:
+            input.temporalKind === TEMPORAL_KIND.TIMED
+              ? event.timezone || 'America/New_York'
+              : null,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`Invalid dates for "${event.title}": ${msg}`);
+        errors++;
+        continue;
+      }
+
       const fp = fingerprintFromNormalizedEvent(event);
 
       let existing = await prisma.event.findFirst({
@@ -343,7 +403,7 @@ export async function upsert_events(
         existing = await prisma.event.findFirst({
           where: {
             title: event.title,
-            start: new Date(event.start),
+            start: temporal.start,
             location: event.location || null,
           },
         });
@@ -353,6 +413,8 @@ export async function upsert_events(
       const tagsJson = event.tags && event.tags.length > 0 
         ? JSON.stringify(event.tags) 
         : null;
+
+      const temporalData = temporalFieldsForPrisma(temporal);
 
       console.log(`Processing event: "${event.title}" - ${existing ? 'UPDATE' : 'CREATE'} - Status: ${publish ? 'PUBLISHED' : 'PENDING'}`);
 
@@ -365,9 +427,7 @@ export async function upsert_events(
             description: event.description || null,
             url: event.url || null,
             location: event.location || null,
-            start: new Date(event.start),
-            end: new Date(event.end),
-            timezone: event.timezone || null,
+            ...temporalData,
             source: event.source || null,
             tags: tagsJson,
             country: event.country || null,
@@ -388,9 +448,7 @@ export async function upsert_events(
             description: event.description || null,
             url: event.url || null,
             location: event.location || null,
-            start: new Date(event.start),
-            end: new Date(event.end),
-            timezone: event.timezone || null,
+            ...temporalData,
             source: event.source || null,
             tags: tagsJson,
             country: event.country || null,

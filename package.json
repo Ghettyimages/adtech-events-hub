@@ -13,6 +13,7 @@
     "audit:event-dates": "tsx scripts/audit-event-dates.ts",
     "backfill:event-temporal": "tsx scripts/backfill-event-temporal.ts",
     "repair:event-dates": "tsx scripts/repair-event-dates.ts",
+    "repair:cannes-hub": "tsx scripts/repair-cannes-hub-dates.ts",
     "test:event-temporal": "tsx scripts/test-event-temporal.ts",
     "seed": "tsx scripts/seed-from-csv.ts",
     "seed:tags": "tsx scripts/seed-tags.ts",

@@ -1,5 +1,5 @@
 /**
- * Lightweight tests for eventTemporal (run: npx tsx scripts/test-event-temporal.ts)
+ * Lightweight tests for eventTemporal (run: npm run test:event-temporal)
  */
 
 import assert from 'node:assert/strict';
@@ -7,10 +7,15 @@ import { DateTime } from 'luxon';
 import {
   TEMPORAL_KIND,
   allDayInstantsFromCivilDates,
+  civilDayKeyInZone,
+  coerceHubEventTimezone,
   fromCsvRow,
   normalizeEventForWrite,
+  repairHubTimedTemporal,
+  storedTemporalEquals,
   toCsvRow,
   toGoogleCalendarPayload,
+  utcInstantToWallClockDateTime,
   violatesAllDayStorageContract,
 } from '../src/lib/eventTemporal';
 
@@ -41,12 +46,88 @@ function testTimedEtEveningGooglePayload() {
   assert.ok(payload.start.dateTime);
   assert.ok(payload.end.dateTime);
   assert.equal(payload.start.timeZone, 'America/New_York');
+  assert.equal(payload.start.dateTime, '2026-07-29T19:00:00');
+  assert.equal(payload.end.dateTime, '2026-07-29T21:00:00');
+  assert.ok(!payload.start.dateTime!.endsWith('Z'));
+}
 
-  const startEt = DateTime.fromISO(payload.start.dateTime!, { zone: 'utc' }).setZone(
-    'America/New_York'
+function testCannesAfternoonGooglePayload() {
+  const normalized = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: '2026-06-22T14:00',
+    end: '2026-06-22T14:45',
+    timezone: 'Europe/Paris',
+  });
+
+  assert.equal(normalized.start.toISOString(), '2026-06-22T12:00:00.000Z');
+
+  const payload = toGoogleCalendarPayload({
+    temporalKind: normalized.temporalKind,
+    start: normalized.start,
+    end: normalized.end,
+    timezone: normalized.timezone,
+    allDayStartDate: null,
+    allDayEndDate: null,
+  });
+
+  assert.equal(payload.start.dateTime, '2026-06-22T14:00:00');
+  assert.equal(payload.end.dateTime, '2026-06-22T14:45:00');
+  assert.equal(payload.start.timeZone, 'Europe/Paris');
+}
+
+function testHubTimezoneCoercion() {
+  const coerced = coerceHubEventTimezone('America/New_York', 'Europe/Paris');
+  assert.equal(coerced.timezone, 'Europe/Paris');
+  assert.equal(coerced.wasOverwritten, true);
+}
+
+function testCivilDayInParis() {
+  const normalized = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: '2026-06-22T23:30',
+    end: '2026-06-23T00:30',
+    timezone: 'Europe/Paris',
+  });
+  const dayKey = civilDayKeyInZone(normalized.start, 'Europe/Paris');
+  assert.equal(dayKey, '2026-06-22');
+}
+
+function testRepairHubTimedFromWrongZone() {
+  const wrong = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: '2026-06-22T14:00',
+    end: '2026-06-22T15:00',
+    timezone: 'America/New_York',
+  });
+
+  const repaired = repairHubTimedTemporal(wrong, 'Europe/Paris', 'America/New_York');
+  assert.equal(
+    utcInstantToWallClockDateTime(repaired.start, 'Europe/Paris'),
+    '2026-06-22T14:00:00'
   );
-  assert.equal(startEt.toFormat('yyyy-MM-dd'), '2026-07-29');
-  assert.equal(startEt.hour, 19);
+}
+
+function testStoredTemporalEqualsIdempotent() {
+  const normalized = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: '2026-06-22T14:00',
+    end: '2026-06-22T15:00',
+    timezone: 'Europe/Paris',
+  });
+  assert.equal(
+    storedTemporalEquals(
+      {
+        temporalKind: normalized.temporalKind,
+        start: normalized.start,
+        end: normalized.end,
+        timezone: normalized.timezone,
+        allDayStartDate: null,
+        allDayEndDate: null,
+      },
+      normalized
+    ),
+    true
+  );
 }
 
 function testCsvRoundTrip() {
@@ -79,7 +160,6 @@ function testCsvRoundTrip() {
 }
 
 function testDstBoundary() {
-  // Spring forward 2026-03-08 in America/New_York
   const normalized = normalizeEventForWrite({
     temporalKind: TEMPORAL_KIND.TIMED,
     start: '2026-03-08T01:30',
@@ -87,8 +167,8 @@ function testDstBoundary() {
     timezone: 'America/New_York',
   });
 
-  const startUtc = DateTime.fromJSDate(normalized.start, { zone: 'utc' });
   const endUtc = DateTime.fromJSDate(normalized.end, { zone: 'utc' });
+  const startUtc = DateTime.fromJSDate(normalized.start, { zone: 'utc' });
   assert.ok(endUtc > startUtc);
   assert.equal(
     DateTime.fromJSDate(normalized.start, { zone: 'America/New_York' }).toFormat(
@@ -101,6 +181,11 @@ function testDstBoundary() {
 function run() {
   testAllDayInvariant();
   testTimedEtEveningGooglePayload();
+  testCannesAfternoonGooglePayload();
+  testHubTimezoneCoercion();
+  testCivilDayInParis();
+  testRepairHubTimedFromWrongZone();
+  testStoredTemporalEqualsIdempotent();
   testCsvRoundTrip();
   testDstBoundary();
   console.log('All eventTemporal tests passed.');

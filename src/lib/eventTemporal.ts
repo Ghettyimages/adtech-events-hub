@@ -401,7 +401,7 @@ export function projectRepairFromLegacyRow(event: EventTemporalRow): RepairProje
 
 export function formatForDisplay(
   date: Date | string,
-  event: Pick<Event, 'temporalKind' | 'timezone'>,
+  event: { temporalKind?: string | null; timezone?: string | null },
   isEndDate = false
 ): string {
   const isAllDay = isAllDayEvent(event);

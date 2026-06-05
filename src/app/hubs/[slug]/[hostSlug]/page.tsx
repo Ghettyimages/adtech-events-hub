@@ -35,6 +35,7 @@ export default async function HostPage({ params }: PageProps) {
     start: e.start.toISOString(),
     end: e.end.toISOString(),
     timezone: e.timezone,
+    temporalKind: e.temporalKind,
     tags: e.tags,
     source: e.source,
   }));
@@ -43,6 +44,7 @@ export default async function HostPage({ params }: PageProps) {
     <HostPageClient
       hubSlug={hub.slug}
       hubName={hub.name}
+      hubTimezone={hub.timezone}
       theme={parseHubTheme(hub.theme)}
       host={{
         slug: host.slug,

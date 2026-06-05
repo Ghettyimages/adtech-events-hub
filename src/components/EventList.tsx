@@ -13,7 +13,11 @@ interface EventListProps {
   collapsePastEvents?: boolean;
 }
 
-function formatDate(value: Date | string | null, isAllDay: boolean = false, isEndDate: boolean = false) {
+function formatDate(
+  value: Date | string | null,
+  event: Pick<Event, 'temporalKind' | 'timezone'>,
+  isEndDate: boolean = false
+) {
   if (!value) {
     return 'TBD';
   }
@@ -23,8 +27,7 @@ function formatDate(value: Date | string | null, isAllDay: boolean = false, isEn
     return 'TBD';
   }
 
-  // Use the shared utility function that handles all-day events correctly
-  return formatEventDateForDisplay(date, isAllDay, isEndDate);
+  return formatEventDateForDisplay(date, event, isEndDate);
 }
 
 function EventListContent({
@@ -48,8 +51,8 @@ function EventListContent({
             <div className="flex flex-col gap-2">
               <span className="font-medium text-gray-900 dark:text-gray-100">{event.title}</span>
               <span className="text-sm text-gray-700 dark:text-gray-300">
-                {formatDate(event.start, isAllDayEvent(event), false)}
-                {event.end && ` – ${formatDate(event.end, isAllDayEvent(event), true)}`}
+                {formatDate(event.start, event, false)}
+                {event.end && ` – ${formatDate(event.end, event, true)}`}
               </span>
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 {(event.city || event.region || event.country)
@@ -110,10 +113,10 @@ function EventListContent({
                   </div>
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                  {formatDate(event.start, isAllDayEvent(event), false)}
+                  {formatDate(event.start, event, false)}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                  {formatDate(event.end, isAllDayEvent(event), true)}
+                  {formatDate(event.end, event, true)}
                 </td>
                 <td className="px-4 py-4 whitespace-normal text-sm text-gray-700 dark:text-gray-300">
                   {(event.city || event.region || event.country) ? (

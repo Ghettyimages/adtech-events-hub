@@ -76,6 +76,10 @@ type AuditRow = {
   storage_end_differs: boolean;
   google_start_differs: boolean;
   google_end_exclusive_differs: boolean;
+
+  hub_id: string | null;
+  hub_timezone_mismatch: boolean;
+  hub_timed_missing_timezone: boolean;
 };
 
 function parseArgs(argv: string[]): { out: string; format: 'json' | 'csv' } {
@@ -102,11 +106,30 @@ async function main() {
     process.exit(1);
   }
 
+  const hubSlugArg = process.argv.find((a) => a.startsWith('--hub='))?.slice('--hub='.length);
+
+  const hubFilter = hubSlugArg
+    ? await prisma.eventHub.findUnique({
+        where: { slug: hubSlugArg },
+        select: { id: true, slug: true, timezone: true },
+      })
+    : null;
+
+  const hubTzById = new Map(
+    (
+      await prisma.eventHub.findMany({
+        select: { id: true, timezone: true },
+      })
+    ).map((h) => [h.id, h.timezone?.trim() || null] as const)
+  );
+
   const events = await prisma.event.findMany({
+    where: hubFilter ? { hubId: hubFilter.id } : undefined,
     orderBy: { start: 'asc' },
   });
 
   const rows: AuditRow[] = events.map((event) => {
+    const eventHubTz = event.hubId ? hubTzById.get(event.hubId) : null;
     const start = new Date(event.start);
     const end = new Date(event.end);
     const appAllDay = isAllDayEvent(event);
@@ -193,6 +216,19 @@ async function main() {
       storage_end_differs: storageEndDiffers,
       google_start_differs: googleStartDiffers,
       google_end_exclusive_differs: googleEndDiffers,
+
+      hub_id: event.hubId,
+      hub_timezone_mismatch: Boolean(
+        event.hubId &&
+          eventHubTz &&
+          projected.temporalKind === TEMPORAL_KIND.TIMED &&
+          (projected.timezone?.trim() || '') !== eventHubTz
+      ),
+      hub_timed_missing_timezone: Boolean(
+        event.hubId &&
+          projected.temporalKind === TEMPORAL_KIND.TIMED &&
+          !event.timezone?.trim()
+      ),
     };
   });
 
@@ -216,6 +252,9 @@ async function main() {
     google_export_would_change: rows.filter(
       (r) => r.google_start_differs || r.google_end_exclusive_differs
     ).length,
+    hub_timezone_mismatch: rows.filter((r) => r.hub_timezone_mismatch).length,
+    hub_timed_missing_timezone: rows.filter((r) => r.hub_timed_missing_timezone).length,
+    hub_slug: hubFilter?.slug ?? null,
   };
 
   if (format === 'json') {

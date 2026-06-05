@@ -23,7 +23,10 @@ export {
   isAllDayEvent,
 };
 
-type DisplayTemporal = Pick<Event, 'temporalKind' | 'timezone'>;
+type DisplayTemporal = {
+  temporalKind?: string | null;
+  timezone?: string | null;
+};
 
 export function formatEventDateForDisplay(
   date: Date | string,

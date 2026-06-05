@@ -594,7 +594,7 @@ export default function HostEventsSection({
                     )}
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    {formatEventDateForDisplay(event.start, allDay, false)}
+                    {formatEventDateForDisplay(event.start, event, false)}
                     {event.location ? ` · ${event.location}` : ''}
                   </p>
                 </div>

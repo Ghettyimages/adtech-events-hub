@@ -8,7 +8,6 @@ import { useRouter } from 'next/navigation';
 import AddToCalendarLink from './AddToCalendarLink';
 import SubscribeModal from './SubscribeModal';
 import { formatEventDateForDisplay } from '@/lib/events';
-import { isAllDayEvent } from '@/lib/eventTemporal';
 
 interface EventCardProps {
   event: Event;
@@ -163,10 +162,10 @@ export default function EventCard({ event, onClose }: EventCardProps) {
                 Date
               </h3>
               <p className="text-gray-900 dark:text-gray-100">
-                <strong>Start:</strong> {formatEventDateForDisplay(event.start, isAllDayEvent(event), false)}
+                <strong>Start:</strong> {formatEventDateForDisplay(event.start, event, false)}
               </p>
               <p className="text-gray-900 dark:text-gray-100">
-                <strong>End:</strong> {formatEventDateForDisplay(event.end, isAllDayEvent(event), true)}
+                <strong>End:</strong> {formatEventDateForDisplay(event.end, event, true)}
               </p>
             </div>
 

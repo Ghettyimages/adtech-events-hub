@@ -103,7 +103,7 @@ export default function HostGrid({ hubSlug, hosts }: HostGridProps) {
       />
 
       {isSearching && showHostSections && (
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+        <h2 className="text-lg font-semibold text-tmc-navy mb-4">
           Hosts matching &ldquo;{search.trim()}&rdquo;
         </h2>
       )}
@@ -111,7 +111,7 @@ export default function HostGrid({ hubSlug, hosts }: HostGridProps) {
       {showHostSections && featured.length > 0 && (
         <section className="mb-10">
           {!isSearching && (
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            <h2 className="text-lg font-semibold text-tmc-navy mb-4">
               Featured hosts
             </h2>
           )}
@@ -126,10 +126,10 @@ export default function HostGrid({ hubSlug, hosts }: HostGridProps) {
       {showHostSections && (
         <section>
           {!isSearching && (
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">All hosts</h2>
+            <h2 className="text-lg font-semibold text-tmc-navy mb-4">All hosts</h2>
           )}
           {rest.length === 0 && featured.length === 0 ? (
-            <p className="text-gray-500 dark:text-gray-400">No hosts match your search.</p>
+            <p className="text-tmc-muted">No hosts match your search.</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {rest.map((host) => (

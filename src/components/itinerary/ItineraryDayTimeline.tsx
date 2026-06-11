@@ -71,8 +71,10 @@ export default function ItineraryDayTimeline({
           <button
             type="button"
             onClick={() => setViewMode('agenda')}
-            className={`px-3 py-2 rounded-lg text-sm min-h-[44px] ${
-              viewMode === 'agenda' ? 'bg-tmc-navy text-white' : 'bg-gray-100'
+            className={`px-3 py-2 rounded-lg text-sm font-medium min-h-[44px] border transition ${
+              viewMode === 'agenda'
+                ? 'bg-tmc-navy text-white border-tmc-navy'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'
             }`}
           >
             Agenda
@@ -80,8 +82,10 @@ export default function ItineraryDayTimeline({
           <button
             type="button"
             onClick={() => setViewMode('timeline')}
-            className={`px-3 py-2 rounded-lg text-sm min-h-[44px] ${
-              viewMode === 'timeline' ? 'bg-tmc-navy text-white' : 'bg-gray-100'
+            className={`px-3 py-2 rounded-lg text-sm font-medium min-h-[44px] border transition ${
+              viewMode === 'timeline'
+                ? 'bg-tmc-navy text-white border-tmc-navy'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'
             }`}
           >
             Timeline

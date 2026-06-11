@@ -5,8 +5,13 @@ import { z } from 'zod';
 import {
   upsertEventToGoogleCalendar,
   convertEventToGoogleCalendar,
-  generateEventICalUID,
 } from '@/lib/gcal';
+import {
+  ensureHubCalendarSyncRow,
+  getGoogleTokensForUser,
+  provisionAndClaimHubCalendar,
+  syncHubEventIfConnected,
+} from '@/lib/hubGcal';
 
 const followSchema = z.object({
   eventId: z.string(),
@@ -110,7 +115,6 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Auto-sync to Google Calendar when connected (FULL or CUSTOM mode)
     let gcalSynced = false;
     const dbUser = await prisma.user.findUnique({
       where: { id: session.user.id },
@@ -121,53 +125,66 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    if (
-      dbUser?.gcalSyncEnabled &&
-      dbUser?.gcalCalendarId &&
-      event.status === 'PUBLISHED'
-    ) {
-      // Get Google account tokens
-      const googleAccount = await prisma.account.findFirst({
-        where: {
-          userId: session.user.id,
-          provider: 'google',
-        },
-        select: { access_token: true, refresh_token: true },
-      });
+    if (dbUser?.gcalSyncEnabled && event.status === 'PUBLISHED') {
+      if (event.hubId) {
+        const tokens = await getGoogleTokensForUser(session.user.id);
+        if (tokens) {
+          try {
+            await ensureHubCalendarSyncRow(session.user.id, event.hubId);
+            await provisionAndClaimHubCalendar(
+              session.user.id,
+              event.hubId,
+              tokens.accessToken,
+              tokens.refreshToken
+            );
+            gcalSynced = await syncHubEventIfConnected(session.user.id, event);
+          } catch (error) {
+            console.error('Failed to sync hub event to Google Calendar:', error);
+          }
+        }
+      } else if (dbUser.gcalCalendarId) {
+        const googleAccount = await prisma.account.findFirst({
+          where: {
+            userId: session.user.id,
+            provider: 'google',
+          },
+          select: { access_token: true, refresh_token: true },
+        });
 
-      if (googleAccount?.access_token) {
-        try {
-          const gcalEvent = convertEventToGoogleCalendar(event);
-          const gcalEventId = await upsertEventToGoogleCalendar(
-            googleAccount.access_token,
-            googleAccount.refresh_token || undefined,
-            dbUser.gcalCalendarId,
-            gcalEvent
-          );
+        if (googleAccount?.access_token) {
+          try {
+            const gcalEvent = convertEventToGoogleCalendar(event);
+            const gcalEventId = await upsertEventToGoogleCalendar(
+              googleAccount.access_token,
+              googleAccount.refresh_token || undefined,
+              dbUser.gcalCalendarId,
+              gcalEvent
+            );
 
-          // Track the sync in UserEventSync table
-          await prisma.userEventSync.upsert({
-            where: {
-              userId_eventId: {
+            await prisma.userEventSync.upsert({
+              where: {
+                userId_eventId_gcalCalendarId: {
+                  userId: session.user.id,
+                  eventId,
+                  gcalCalendarId: dbUser.gcalCalendarId,
+                },
+              },
+              create: {
                 userId: session.user.id,
                 eventId,
+                gcalCalendarId: dbUser.gcalCalendarId,
+                gcalEventId,
               },
-            },
-            create: {
-              userId: session.user.id,
-              eventId,
-              gcalEventId,
-            },
-            update: {
-              gcalEventId,
-              syncedAt: new Date(),
-            },
-          });
+              update: {
+                gcalEventId,
+                syncedAt: new Date(),
+              },
+            });
 
-          gcalSynced = true;
-        } catch (error) {
-          // Log error but don't fail the follow operation
-          console.error('Failed to sync event to Google Calendar:', error);
+            gcalSynced = true;
+          } catch (error) {
+            console.error('Failed to sync event to Google Calendar:', error);
+          }
         }
       }
     }

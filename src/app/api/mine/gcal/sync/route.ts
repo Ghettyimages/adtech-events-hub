@@ -61,10 +61,9 @@ export async function POST(request: NextRequest) {
     // Determine which events to sync based on mode
     let eventsToSync: any[];
     if (syncMode === 'CUSTOM') {
-      // Sync only followed events
       eventsToSync = dbUser.eventFollows
         .map((follow) => follow.event)
-        .filter((event) => event.status === 'PUBLISHED');
+        .filter((event) => event.status === 'PUBLISHED' && !event.hubId);
     } else {
       // FULL mode: Ensure FULL subscription is active
       let fullSubscription = await prisma.subscription.findFirst({
@@ -121,14 +120,16 @@ export async function POST(request: NextRequest) {
         // Track the sync in UserEventSync table
         await prisma.userEventSync.upsert({
           where: {
-            userId_eventId: {
+            userId_eventId_gcalCalendarId: {
               userId: session.user.id,
               eventId: event.id,
+              gcalCalendarId: calendarId,
             },
           },
           create: {
             userId: session.user.id,
             eventId: event.id,
+            gcalCalendarId: calendarId,
             gcalEventId,
           },
           update: {
@@ -148,6 +149,7 @@ export async function POST(request: NextRequest) {
     const currentSyncs = await prisma.userEventSync.findMany({
       where: {
         userId: session.user.id,
+        gcalCalendarId: calendarId,
       },
     });
 

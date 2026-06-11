@@ -38,6 +38,8 @@ export default async function HostPage({ params }: PageProps) {
     temporalKind: e.temporalKind,
     tags: e.tags,
     source: e.source,
+    sponsoredBy: e.sponsoredBy,
+    sponsorKind: e.sponsorKind,
   }));
 
   return (
@@ -47,6 +49,7 @@ export default async function HostPage({ params }: PageProps) {
       hubTimezone={hub.timezone}
       theme={parseHubTheme(hub.theme)}
       host={{
+        id: host.id,
         slug: host.slug,
         name: host.name,
         logoUrl: host.logoUrl,

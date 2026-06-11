@@ -273,58 +273,67 @@ export function convertEventToGoogleCalendar(event: Pick<
   };
 }
 
+export const MAIN_CALENDAR_SUMMARY = 'The Media Calendar';
+
+export interface DedicatedCalendarOptions {
+  summary: string;
+  description?: string;
+  timeZone?: string;
+}
+
+export const MAIN_CALENDAR_OPTIONS: DedicatedCalendarOptions = {
+  summary: MAIN_CALENDAR_SUMMARY,
+  description: 'Synced events from themediacalendar.com',
+  timeZone: process.env.DEFAULT_TIMEZONE || 'America/New_York',
+};
+
 /**
  * Ensure a dedicated calendar exists for a user
  * Creates the calendar if it doesn't exist, returns the calendar ID
  * Checks for existing calendars first to prevent duplicates
- * 
+ *
  * NOTE: This is the low-level helper. For race-safe provisioning that claims
  * the calendar ID in the database, use `provisionAndClaimCalendar()` instead.
  */
 export async function ensureDedicatedCalendar(
   accessToken: string,
-  refreshToken: string | undefined
+  refreshToken: string | undefined,
+  options: DedicatedCalendarOptions = MAIN_CALENDAR_OPTIONS
 ): Promise<{ calendarId: string; created: boolean }> {
   const calendar = getCalendarClient(accessToken, refreshToken);
+  const timeZone = options.timeZone || process.env.DEFAULT_TIMEZONE || 'America/New_York';
 
   try {
-    // FIRST: Check if calendar already exists by listing calendars
-    // This prevents creating duplicate calendars
     const calendars = await calendar.calendarList.list();
     const existingCalendar = calendars.data.items?.find(
-      (cal) => cal.summary === 'The Media Calendar'
+      (cal) => cal.summary === options.summary
     );
-    
+
     if (existingCalendar?.id) {
       console.log('[ensureDedicatedCalendar] Reusing existing calendar:', existingCalendar.id);
       return { calendarId: existingCalendar.id, created: false };
     }
 
-    // Only create if no existing calendar found
-    console.log('[ensureDedicatedCalendar] Creating new "The Media Calendar"...');
+    console.log(`[ensureDedicatedCalendar] Creating new "${options.summary}"...`);
     const created = await calendar.calendars.insert({
       requestBody: {
-        summary: 'The Media Calendar',
-        description: 'Synced events from themediacalendar.com',
-        timeZone: process.env.DEFAULT_TIMEZONE || 'America/New_York',
+        summary: options.summary,
+        description: options.description || 'Synced events from themediacalendar.com',
+        timeZone,
       },
     });
 
     console.log('[ensureDedicatedCalendar] Created calendar:', created.data.id);
     return { calendarId: created.data.id!, created: true };
   } catch (error: any) {
-    // If creation fails with 409 (already exists), try to find it again
-    // This handles race conditions where calendar was created between our check and creation
     if (error.code === 409 || error.message?.includes('already exists')) {
       console.warn('[ensureDedicatedCalendar] Creation conflict (409), searching again...');
       try {
         const calendars = await calendar.calendarList.list();
-        const mediaCalendar = calendars.data.items?.find(
-          (cal) => cal.summary === 'The Media Calendar'
-        );
-        if (mediaCalendar?.id) {
-          console.log('[ensureDedicatedCalendar] Found after conflict:', mediaCalendar.id);
-          return { calendarId: mediaCalendar.id, created: false };
+        const found = calendars.data.items?.find((cal) => cal.summary === options.summary);
+        if (found?.id) {
+          console.log('[ensureDedicatedCalendar] Found after conflict:', found.id);
+          return { calendarId: found.id, created: false };
         }
       } catch (listError: any) {
         console.error('[ensureDedicatedCalendar] Failed to list after conflict:', listError);
@@ -338,7 +347,7 @@ export async function ensureDedicatedCalendar(
 /**
  * Delete a calendar by ID (best-effort, logs errors but doesn't throw)
  */
-async function deleteCalendarBestEffort(
+export async function deleteCalendarBestEffort(
   accessToken: string,
   refreshToken: string | undefined,
   calendarId: string
@@ -356,7 +365,7 @@ async function deleteCalendarBestEffort(
 /**
  * Verify a calendar ID is accessible in the user's Google account
  */
-async function verifyCalendarExists(
+export async function verifyCalendarExists(
   accessToken: string,
   refreshToken: string | undefined,
   calendarId: string
@@ -426,7 +435,8 @@ export async function provisionAndClaimCalendar(
   // Step 2: Find or create a calendar in Google
   const { calendarId: candidateId, created: wasCreated } = await ensureDedicatedCalendar(
     accessToken,
-    refreshToken
+    refreshToken,
+    MAIN_CALENDAR_OPTIONS
   );
 
   // Step 3: Atomically claim the calendar ID (only if gcalCalendarId is still null)

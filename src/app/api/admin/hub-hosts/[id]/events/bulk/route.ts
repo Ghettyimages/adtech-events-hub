@@ -14,9 +14,11 @@ const bulkBodySchema = z
     url: z.string().nullable().optional(),
     location: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
+    sponsoredBy: z.string().nullable().optional(),
     updateUrl: z.boolean().optional(),
     updateLocation: z.boolean().optional(),
     updateSource: z.boolean().optional(),
+    updateSponsoredBy: z.boolean().optional(),
     addTags: z.array(z.string()).optional(),
     removeTags: z.array(z.string()).optional(),
     updateAddTags: z.boolean().optional(),
@@ -29,6 +31,7 @@ const bulkBodySchema = z
       body.updateUrl ||
       body.updateLocation ||
       body.updateSource ||
+      body.updateSponsoredBy ||
       body.updateAddTags ||
       body.updateRemoveTags,
     { message: 'Select at least one field or tag action' }
@@ -85,7 +88,14 @@ export async function PATCH(
 
     const events = await prisma.event.findMany({
       where: { hubHostId: id, ...statusWhere },
-      select: { id: true, url: true, location: true, source: true, tags: true },
+      select: {
+        id: true,
+        url: true,
+        location: true,
+        source: true,
+        sponsoredBy: true,
+        tags: true,
+      },
     });
 
     const addTags = body.updateAddTags ? normalizeTags(body.addTags ?? []) : [];
@@ -110,6 +120,11 @@ export async function PATCH(
       if (body.updateSource && body.source !== undefined) {
         if (overwrite || isEmpty(event.source)) {
           data.source = body.source;
+        }
+      }
+      if (body.updateSponsoredBy && body.sponsoredBy !== undefined) {
+        if (overwrite || isEmpty(event.sponsoredBy)) {
+          data.sponsoredBy = body.sponsoredBy;
         }
       }
 

@@ -10,6 +10,8 @@ export type ExtractedEvent = {
   url?: string;
   description?: string;
   source?: string;
+  sponsoredBy?: string;
+  sponsorKind?: 'SPONSORED' | 'PARTNERSHIP';
   timezone?: string;
   date_status: 'confirmed' | 'tbd';
   evidence?: string;

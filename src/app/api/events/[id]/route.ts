@@ -131,6 +131,15 @@ export async function PATCH(
         ? null 
         : validatedData.source;
     }
+    if (validatedData.sponsoredBy !== undefined) {
+      updateData.sponsoredBy =
+        validatedData.sponsoredBy === null || validatedData.sponsoredBy === ''
+          ? null
+          : validatedData.sponsoredBy;
+    }
+    if (validatedData.sponsorKind !== undefined) {
+      updateData.sponsorKind = validatedData.sponsorKind;
+    }
     if (validatedData.country !== undefined) {
       updateData.country = validatedData.country === null || validatedData.country === '' 
         ? null 

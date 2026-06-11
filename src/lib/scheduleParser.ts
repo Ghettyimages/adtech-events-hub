@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import { llmText } from './llm';
 import { prisma } from './db';
+import { extractSponsorFromText, type SponsorKind } from './sponsorExtract';
 
 export const parsedScheduleEventSchema = z.object({
   title: z.string().min(1),
@@ -14,6 +15,8 @@ export const parsedScheduleEventSchema = z.object({
   end: z.string().min(1),
   timezone: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  sponsoredBy: z.string().nullable().optional(),
+  sponsorKind: z.enum(['SPONSORED', 'PARTNERSHIP']).nullable().optional(),
 });
 
 export type ParsedScheduleEvent = z.infer<typeof parsedScheduleEventSchema>;
@@ -26,6 +29,8 @@ const llmSessionSchema = z.object({
   end: z.string(),
   timezone: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  sponsoredBy: z.string().nullable().optional(),
+  sponsorKind: z.enum(['SPONSORED', 'PARTNERSHIP']).nullable().optional(),
 });
 
 const llmResponseSchema = z.object({
@@ -55,6 +60,49 @@ function sanitizeJsonResponse(raw: string): string {
   return trimmed;
 }
 
+function applySponsorExtraction(
+  row: z.infer<typeof llmSessionSchema>,
+  hostName: string
+): {
+  title: string;
+  description: string | null | undefined;
+  sponsoredBy: string | null;
+  sponsorKind: SponsorKind | null;
+} {
+  let title = row.title.trim();
+  let description = row.description;
+  let sponsoredBy = row.sponsoredBy?.trim() || null;
+  let sponsorKind = (row.sponsorKind as SponsorKind | null | undefined) ?? null;
+
+  if (!sponsoredBy) {
+    const fromTitle = extractSponsorFromText(title);
+    if (fromTitle.sponsoredBy) {
+      sponsoredBy = fromTitle.sponsoredBy;
+      sponsorKind = fromTitle.sponsorKind;
+      title = fromTitle.cleanedText || title;
+    }
+  }
+
+  if (!sponsoredBy && description) {
+    const fromDesc = extractSponsorFromText(description);
+    if (fromDesc.sponsoredBy) {
+      sponsoredBy = fromDesc.sponsoredBy;
+      sponsorKind = sponsorKind ?? fromDesc.sponsorKind;
+    }
+  }
+
+  if (
+    sponsoredBy &&
+    hostName.trim() &&
+    sponsoredBy.toLowerCase() === hostName.trim().toLowerCase()
+  ) {
+    sponsoredBy = null;
+    sponsorKind = null;
+  }
+
+  return { title, description, sponsoredBy, sponsorKind };
+}
+
 function buildSystemPrompt(skipUmbrella: boolean): string {
   const umbrellaRule = skipUmbrella
     ? `- Output ONE row per individual session (talk, panel, dinner, reception, etc.).
@@ -73,7 +121,9 @@ Return ONLY valid JSON with this shape:
       "start": "ISO 8601 datetime or parseable datetime string",
       "end": "ISO 8601 datetime or parseable datetime string",
       "timezone": "IANA timezone e.g. Europe/Paris",
-      "tags": ["tag-slug", ...]
+      "tags": ["tag-slug", ...],
+      "sponsoredBy": "partner/sponsor name only, or null",
+      "sponsorKind": "SPONSORED or PARTNERSHIP or null"
     }
   ],
   "warnings": ["optional human-readable notes"]
@@ -88,7 +138,14 @@ ${umbrellaRule}
 - Use the hub date range for year when the paste omits a year.
 - For all-day or untimed blocks, use start at 00:00:00 and end at 23:59:59 on that day in the given timezone.
 - description: extra detail only (not duplicate of title); null if none.
-- tags: lowercase slugs; include invite-only when applicable.`;
+- tags: lowercase slugs; include invite-only when applicable.
+- sponsoredBy: partner or sponsor organization name ONLY (e.g. "Google", "IAB & Yahoo"), or null.
+- sponsorKind: "SPONSORED" for "sponsored by" / "presented by" (as funder); "PARTNERSHIP" for "in partnership with" / "in collaboration with"; null if unclear.
+- When sponsorship appears in the session title or on its own line, extract to sponsoredBy and REMOVE that phrase from title.
+- Do NOT put the festival host in sponsoredBy unless the paste explicitly names them as sponsor/partner for that session.
+- If a day header or block applies one sponsor to all sessions below until the next header, apply that sponsoredBy to each session in the block.
+- Typos: treat "parntership", "sponsered", etc. as partnership/sponsored.
+- Multiple sponsors: join with " & " (e.g. "Google & Meta").`;
 }
 
 export async function parseHostSchedule(
@@ -150,8 +207,13 @@ ${rawText.slice(0, 120000)}
   const warnings = [...(validated.data.warnings ?? [])];
 
   for (const row of validated.data.events) {
+    const sponsor = applySponsorExtraction(row, hostName);
     const rowResult = parsedScheduleEventSchema.safeParse({
       ...row,
+      title: sponsor.title,
+      description: sponsor.description,
+      sponsoredBy: sponsor.sponsoredBy,
+      sponsorKind: sponsor.sponsorKind,
       timezone: row.timezone || defaultTimezone,
     });
     if (rowResult.success) {

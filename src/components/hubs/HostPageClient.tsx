@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Event } from '@prisma/client';
 import type { HubTheme } from '@/lib/hubs-client';
@@ -9,6 +8,9 @@ import HubThemeWrapper from './HubThemeWrapper';
 import HostTimeline, { type HubEventRow } from './HostTimeline';
 import HubSubscribeModal from './HubSubscribeModal';
 import EventCard from '@/components/EventCard';
+import { useHubCalendarStatus } from './useHubCalendarStatus';
+import AddToItineraryButton from '@/components/itinerary/AddToItineraryButton';
+import { ITINERARY_ITEM_KIND } from '@/lib/itineraryConstants';
 
 interface HostPageClientProps {
   hubSlug: string;
@@ -16,6 +18,7 @@ interface HostPageClientProps {
   hubTimezone?: string | null;
   theme?: HubTheme;
   host: {
+    id: string;
     slug: string;
     name: string;
     logoUrl: string | null;
@@ -34,20 +37,10 @@ export default function HostPageClient({
   host,
   events,
 }: HostPageClientProps) {
-  const { data: session } = useSession();
+  const { hubStatus, feedToken, refreshHubStatus } = useHubCalendarStatus(hubSlug);
   const [viewMode, setViewMode] = useState<'timeline' | 'list'>('timeline');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [showSubscribe, setShowSubscribe] = useState(false);
-  const [feedToken, setFeedToken] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (session?.user) {
-      fetch('/api/subscriptions/status')
-        .then((r) => r.json())
-        .then((d) => setFeedToken(d.feedToken ?? null))
-        .catch(() => {});
-    }
-  }, [session]);
 
   return (
     <HubThemeWrapper theme={theme}>
@@ -95,13 +88,23 @@ export default function HostPageClient({
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowSubscribe(true)}
-            className="shrink-0 bg-tmc-navy text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 min-h-[44px]"
-          >
-            Subscribe to this host
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+            <AddToItineraryButton
+              payload={{
+                kind: ITINERARY_ITEM_KIND.HOST,
+                hubHostId: host.id,
+                label: host.name,
+              }}
+              hubSlug={hubSlug}
+            />
+            <button
+              type="button"
+              onClick={() => setShowSubscribe(true)}
+              className="bg-tmc-navy text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 min-h-[44px]"
+            >
+              Subscribe to this host
+            </button>
+          </div>
         </header>
 
         <div className="flex gap-2 mb-6">
@@ -131,17 +134,33 @@ export default function HostPageClient({
 
         <HostTimeline
           events={events}
+          hubSlug={hubSlug}
+          hubName={hubName}
           hubTimezone={hubTimezone}
+          hubStatus={hubStatus}
           onSelectEvent={(ev) => setSelectedEvent(ev as unknown as Event)}
+          onCalendarAction={refreshHubStatus}
         />
 
         {selectedEvent && (
-          <EventCard event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+          <EventCard
+            event={selectedEvent}
+            onClose={() => setSelectedEvent(null)}
+            hubContext={{
+              hubSlug,
+              hubName,
+              hubStatus,
+              onRefresh: refreshHubStatus,
+            }}
+          />
         )}
 
         <HubSubscribeModal
           isOpen={showSubscribe}
-          onClose={() => setShowSubscribe(false)}
+          onClose={() => {
+            setShowSubscribe(false);
+            refreshHubStatus();
+          }}
           hubSlug={hubSlug}
           hubName={hubName}
           hostSlugs={[host.slug]}

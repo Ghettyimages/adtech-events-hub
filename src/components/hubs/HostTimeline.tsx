@@ -1,13 +1,21 @@
 'use client';
 
 import { useMemo } from 'react';
-import { formatEventDateForDisplay, buildGoogleCalendarUrl } from '@/lib/events';
+import {
+  formatEventDateForDisplay,
+  formatSponsorLine,
+} from '@/lib/events';
 import {
   civilDayKeyInZone,
   formatCivilDayHeader,
   resolveEventTimezone,
 } from '@/lib/eventTemporal';
 import type { Event } from '@prisma/client';
+import HubAddToCalendarLink, {
+  type HubCalendarStatus,
+} from './HubAddToCalendarLink';
+import AddToItineraryButton from '@/components/itinerary/AddToItineraryButton';
+import { ITINERARY_ITEM_KIND } from '@/lib/itineraryConstants';
 
 export interface HubEventRow {
   id: string;
@@ -21,15 +29,32 @@ export interface HubEventRow {
   temporalKind?: string | null;
   tags: string | null;
   source: string | null;
+  sponsoredBy?: string | null;
+  sponsorKind?: string | null;
+  hubId?: string | null;
+  allDayStartDate?: string | Date | null;
+  allDayEndDate?: string | Date | null;
 }
 
 interface HostTimelineProps {
   events: HubEventRow[];
+  hubSlug: string;
+  hubName: string;
   hubTimezone?: string | null;
+  hubStatus?: HubCalendarStatus | null;
   onSelectEvent?: (event: HubEventRow) => void;
+  onCalendarAction?: () => void;
 }
 
-export default function HostTimeline({ events, hubTimezone, onSelectEvent }: HostTimelineProps) {
+export default function HostTimeline({
+  events,
+  hubSlug,
+  hubName,
+  hubTimezone,
+  hubStatus,
+  onSelectEvent,
+  onCalendarAction,
+}: HostTimelineProps) {
   const byDay = useMemo(() => {
     const groups: { dayKey: string; events: HubEventRow[] }[] = [];
     const sorted = [...events].sort(
@@ -88,6 +113,11 @@ export default function HostTimeline({ events, hubTimezone, onSelectEvent }: Hos
                       ) : (
                         <p className="font-semibold text-lg text-white">{event.title}</p>
                       )}
+                      {event.sponsoredBy && (
+                        <p className="text-sm text-white/60 mt-1 italic">
+                          {formatSponsorLine(event.sponsoredBy, event.sponsorKind)}
+                        </p>
+                      )}
                       {event.location && (
                         <p className="text-sm text-white/75 mt-1">{event.location}</p>
                       )}
@@ -105,16 +135,22 @@ export default function HostTimeline({ events, hubTimezone, onSelectEvent }: Hos
                         View event details
                       </a>
                     )}
-                    <a
-                      href={buildGoogleCalendarUrl(event as unknown as Event)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-tmc-navy transition min-h-[44px] flex-1 sm:flex-none hover:opacity-90"
-                      style={{ background: 'var(--hub-accent, #C9A227)' }}
-                    >
-                      <span aria-hidden>📅</span>
-                      Add to Google Calendar
-                    </a>
+                    <HubAddToCalendarLink
+                      event={event as unknown as Event}
+                      hubSlug={hubSlug}
+                      hubName={hubName}
+                      hubStatus={hubStatus}
+                      compact
+                      onFollowSuccess={onCalendarAction}
+                    />
+                    <AddToItineraryButton
+                      payload={{
+                        kind: ITINERARY_ITEM_KIND.EVENT,
+                        eventId: event.id,
+                      }}
+                      hubSlug={hubSlug}
+                      compact
+                    />
                     {onSelectEvent && (
                       <button
                         type="button"

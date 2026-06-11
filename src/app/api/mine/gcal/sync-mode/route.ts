@@ -103,10 +103,11 @@ export async function PATCH(request: NextRequest) {
     if (mode === 'CUSTOM') {
       eventsToSync = dbUser.eventFollows
         .map((follow) => follow.event)
-        .filter((event) => event.status === 'PUBLISHED');
+        .filter((event) => event.status === 'PUBLISHED' && !event.hubId);
     } else {
+      const { mainCalendarEventWhere } = await import('@/lib/hubs');
       eventsToSync = await prisma.event.findMany({
-        where: { status: 'PUBLISHED' },
+        where: mainCalendarEventWhere('PUBLISHED'),
       });
     }
 
@@ -131,14 +132,16 @@ export async function PATCH(request: NextRequest) {
 
         await prisma.userEventSync.upsert({
           where: {
-            userId_eventId: {
+            userId_eventId_gcalCalendarId: {
               userId: session.user.id,
               eventId: event.id,
+              gcalCalendarId: calendarId,
             },
           },
           create: {
             userId: session.user.id,
             eventId: event.id,
+            gcalCalendarId: calendarId,
             gcalEventId,
           },
           update: {
@@ -158,6 +161,7 @@ export async function PATCH(request: NextRequest) {
     const currentSyncs = await prisma.userEventSync.findMany({
       where: {
         userId: session.user.id,
+        gcalCalendarId: calendarId,
       },
     });
 

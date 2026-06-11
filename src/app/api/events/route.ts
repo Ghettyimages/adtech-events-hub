@@ -163,6 +163,8 @@ export async function POST(request: NextRequest) {
         location: validatedData.location || null,
         ...temporalFieldsForPrisma(temporal),
         source: validatedData.source || null,
+        sponsoredBy: validatedData.sponsoredBy || null,
+        sponsorKind: validatedData.sponsorKind || null,
         tags: validatedData.tags && validatedData.tags.length > 0 
           ? JSON.stringify(validatedData.tags) 
           : null,

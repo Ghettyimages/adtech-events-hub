@@ -6,15 +6,28 @@ import { useSession } from 'next-auth/react';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import AddToCalendarLink from './AddToCalendarLink';
+import HubAddToCalendarLink, {
+  type HubCalendarStatus,
+} from './hubs/HubAddToCalendarLink';
 import SubscribeModal from './SubscribeModal';
-import { formatEventDateForDisplay } from '@/lib/events';
+import { formatEventDateForDisplay, formatSponsorLine } from '@/lib/events';
+import AddToItineraryButton from '@/components/itinerary/AddToItineraryButton';
+import { ITINERARY_ITEM_KIND } from '@/lib/itineraryConstants';
+
+export interface HubEventContext {
+  hubSlug: string;
+  hubName: string;
+  hubStatus?: HubCalendarStatus | null;
+  onRefresh?: () => void;
+}
 
 interface EventCardProps {
   event: Event;
   onClose: () => void;
+  hubContext?: HubEventContext;
 }
 
-export default function EventCard({ event, onClose }: EventCardProps) {
+export default function EventCard({ event, onClose, hubContext }: EventCardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [isFollowing, setIsFollowing] = useState(false);
@@ -254,6 +267,17 @@ export default function EventCard({ event, onClose }: EventCardProps) {
               </div>
             )}
 
+            {event.sponsoredBy && (
+              <div>
+                <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1">
+                  Sponsored by / In partnership with
+                </h3>
+                <p className="text-gray-700 dark:text-gray-300">
+                  {formatSponsorLine(event.sponsoredBy, event.sponsorKind)}
+                </p>
+              </div>
+            )}
+
             {event.source && (
               <div>
                 <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase mb-1">
@@ -264,15 +288,37 @@ export default function EventCard({ event, onClose }: EventCardProps) {
             )}
 
             <div className="pt-4 border-t space-y-3">
-              <AddToCalendarLink
-                event={event}
-                isFollowing={isFollowing}
-                fullSubscriptionActive={fullSubscriptionActive}
-                gcalConnected={gcalConnected}
-                onFollowSuccess={checkSubscriptionStatus}
-              />
-              
-              {status === 'authenticated' && (
+              {hubContext ? (
+                <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+                  <HubAddToCalendarLink
+                    event={event}
+                    hubSlug={hubContext.hubSlug}
+                    hubName={hubContext.hubName}
+                    hubStatus={hubContext.hubStatus}
+                    onFollowSuccess={() => {
+                      checkSubscriptionStatus();
+                      hubContext.onRefresh?.();
+                    }}
+                  />
+                  <AddToItineraryButton
+                    payload={{
+                      kind: ITINERARY_ITEM_KIND.EVENT,
+                      eventId: event.id,
+                    }}
+                    hubSlug={hubContext.hubSlug}
+                  />
+                </div>
+              ) : (
+                <AddToCalendarLink
+                  event={event}
+                  isFollowing={isFollowing}
+                  fullSubscriptionActive={fullSubscriptionActive}
+                  gcalConnected={gcalConnected}
+                  onFollowSuccess={checkSubscriptionStatus}
+                />
+              )}
+
+              {status === 'authenticated' && !hubContext && (
                 <div className="relative" ref={dropdownRef}>
                   <button
                     onClick={() => setShowDropdown(!showDropdown)}

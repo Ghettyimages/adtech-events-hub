@@ -42,3 +42,24 @@ export interface HubPreviewEvent {
   end: string;
   location: string | null;
 }
+
+export interface HubSearchEventHost {
+  slug: string;
+  name: string;
+  logoUrl: string | null;
+}
+
+export interface HubSearchEvent {
+  id: string;
+  title: string;
+  description: string | null;
+  url: string | null;
+  location: string | null;
+  start: string;
+  end: string;
+  timezone: string | null;
+  temporalKind: string | null;
+  tags: string | null;
+  source: string | null;
+  hubHost: HubSearchEventHost | null;
+}

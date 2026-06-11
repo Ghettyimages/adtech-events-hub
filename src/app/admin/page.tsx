@@ -51,6 +51,8 @@ interface EventFormData {
   end?: string;      // datetime-local formatted string
   timezone?: string;
   source?: string;
+  sponsoredBy?: string;
+  sponsorKind?: 'SPONSORED' | 'PARTNERSHIP' | '';
   country?: string;
   region?: string;
   city?: string;
@@ -184,6 +186,8 @@ export default function AdminPage() {
     end: string;
     timezone?: string;
     tags?: string[];
+    sponsoredBy?: string | null;
+    sponsorKind?: 'SPONSORED' | 'PARTNERSHIP' | null;
     included: boolean;
   }
   const [scheduleRawText, setScheduleRawText] = useState('');
@@ -678,8 +682,16 @@ export default function AdminPage() {
       }
 
       setCsvUploadResult(result);
+      const hubNote =
+        result.stats.hubsCreated > 0
+          ? `, ${result.stats.hubsCreated} hub${result.stats.hubsCreated === 1 ? '' : 's'} created`
+          : '';
+      const hostNote =
+        result.stats.hostsCreated > 0
+          ? `, ${result.stats.hostsCreated} host${result.stats.hostsCreated === 1 ? '' : 's'} created`
+          : '';
       setSuccessMessage(
-        `✅ CSV uploaded successfully! ${result.stats.success} events processed, ${result.stats.errors} errors.`
+        `✅ CSV uploaded successfully! ${result.stats.success} events processed, ${result.stats.errors} errors${hubNote}${hostNote}.`
       );
 
       await fetch('/api/revalidate', { method: 'POST' });
@@ -990,6 +1002,8 @@ export default function AdminPage() {
       end: endFormatted,
       timezone: event.timezone || '',
       source: event.source || '',
+      sponsoredBy: event.sponsoredBy || '',
+      sponsorKind: (event.sponsorKind as 'SPONSORED' | 'PARTNERSHIP' | null) || '',
       country: event.country || '',
       region: event.region || '',
       city: event.city || '',
@@ -1106,6 +1120,17 @@ export default function AdminPage() {
       if (editFormData.source !== undefined) {
         const trimmed = editFormData.source?.trim();
         updateData.source = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+
+      if (editFormData.sponsoredBy !== undefined) {
+        const trimmed = editFormData.sponsoredBy?.trim();
+        updateData.sponsoredBy = trimmed && trimmed.length > 0 ? trimmed : null;
+      }
+      if (editFormData.sponsorKind !== undefined) {
+        updateData.sponsorKind =
+          editFormData.sponsorKind === 'SPONSORED' || editFormData.sponsorKind === 'PARTNERSHIP'
+            ? editFormData.sponsorKind
+            : null;
       }
       
       // Handle location fields
@@ -1519,6 +1544,7 @@ export default function AdminPage() {
                       <th className="px-2 py-2 text-left">Start</th>
                       <th className="px-2 py-2 text-left">End</th>
                       <th className="px-2 py-2 text-left">Location</th>
+                      <th className="px-2 py-2 text-left">Sponsored by</th>
                       <th className="px-2 py-2 text-left">Tags</th>
                       <th className="px-2 py-2 text-left">Description</th>
                     </tr>
@@ -1581,6 +1607,19 @@ export default function AdminPage() {
                             className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800"
                           />
                         </td>
+                        <td className="px-2 py-2 align-top min-w-[8rem]">
+                          <input
+                            type="text"
+                            value={row.sponsoredBy ?? ''}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, {
+                                sponsoredBy: e.target.value || null,
+                              })
+                            }
+                            placeholder="e.g. Google"
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800"
+                          />
+                        </td>
                         <td className="px-2 py-2 align-top text-xs text-gray-600 dark:text-gray-400">
                           {(row.tags ?? []).join(', ') || '—'}
                         </td>
@@ -1616,10 +1655,16 @@ export default function AdminPage() {
               Required columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">title</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">start</code>
             </p>
             <p className="mb-2">
-              Optional columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">location</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">description</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">status</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">tags</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">country</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">region</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">city</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">all_day</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code>
+              Optional event columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">location</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">description</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">sponsored_by</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">sponsor_kind</code> (<code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">SPONSORED</code> or <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">PARTNERSHIP</code>), <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">status</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">tags</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">country</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">region</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">city</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">all_day</code>
+            </p>
+            <p className="mb-2">
+              Festival hub columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_name</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_start</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_location</code>
+            </p>
+            <p className="mb-2">
+              Host columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_name</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_url</code> (host website; event link goes in <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>). Use <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code> as the host display name when slug is omitted.
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code> / <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code> assign rows to a festival hub. Or pick a default hub below to apply it to every row without its own <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code>.
+              If <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code> does not exist yet, include <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_name</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_start</code>, and <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_end</code> to create the hub. Existing hosts are matched by <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code> or <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>; new hosts are created automatically. Or pick a default hub below for rows without their own <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code>.
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
               Date formats: YYYY-MM-DD, MM/DD/YYYY, or ISO format. Tags should be comma-separated.
@@ -1686,6 +1731,13 @@ export default function AdminPage() {
             />
           </label>
           <a
+            href="/api/events/csv-template"
+            download
+            className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
+          >
+            Download template
+          </a>
+          <a
             href="/api/events/export-csv"
             download
             className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition"
@@ -1712,6 +1764,16 @@ export default function AdminPage() {
               </p>
               <p className="text-gray-700 dark:text-gray-300">Total rows: {csvUploadResult.stats.total}</p>
               <p className="text-green-700 dark:text-green-400">Success: {csvUploadResult.stats.success}</p>
+              {csvUploadResult.stats.hubsCreated > 0 && (
+                <p className="text-green-700 dark:text-green-400">
+                  Hubs created: {csvUploadResult.stats.hubsCreated}
+                </p>
+              )}
+              {csvUploadResult.stats.hostsCreated > 0 && (
+                <p className="text-green-700 dark:text-green-400">
+                  Hosts created: {csvUploadResult.stats.hostsCreated}
+                </p>
+              )}
               {csvUploadResult.stats.errors > 0 && (
                 <p className="text-yellow-700 dark:text-yellow-400">Errors: {csvUploadResult.stats.errors}</p>
               )}
@@ -2906,6 +2968,42 @@ export default function AdminPage() {
                     onChange={(e) => setEditFormData({ ...editFormData, source: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                   />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Sponsored by / In partnership with
+                    </label>
+                    <input
+                      type="text"
+                      value={editFormData.sponsoredBy || ''}
+                      onChange={(e) =>
+                        setEditFormData({ ...editFormData, sponsoredBy: e.target.value })
+                      }
+                      placeholder="e.g. Google, IAB & Yahoo"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Sponsor label
+                    </label>
+                    <select
+                      value={editFormData.sponsorKind || ''}
+                      onChange={(e) =>
+                        setEditFormData({
+                          ...editFormData,
+                          sponsorKind: e.target.value as EventFormData['sponsorKind'],
+                        })
+                      }
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                    >
+                      <option value="">Auto / name only</option>
+                      <option value="PARTNERSHIP">In partnership with …</option>
+                      <option value="SPONSORED">Sponsored by …</option>
+                    </select>
+                  </div>
                 </div>
 
                 {!isAllDay && (

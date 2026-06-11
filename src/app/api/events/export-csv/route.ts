@@ -8,8 +8,8 @@ export async function GET(request: NextRequest) {
     const events = await prisma.event.findMany({
       orderBy: { start: 'asc' },
       include: {
-        hub: { select: { slug: true } },
-        hubHost: { select: { slug: true } },
+        hub: { select: { slug: true, name: true, timezone: true } },
+        hubHost: { select: { slug: true, name: true, websiteUrl: true } },
       },
     });
 
@@ -27,13 +27,19 @@ export async function GET(request: NextRequest) {
         all_day: temporal.all_day,
         temporal_kind: temporal.temporal_kind,
         source: event.source || '',
+        sponsored_by: event.sponsoredBy || '',
+        sponsor_kind: event.sponsorKind || '',
         status: event.status,
         tags: event.tags || '',
         country: event.country || '',
         region: event.region || '',
         city: event.city || '',
         hub_slug: event.hub?.slug || '',
+        hub_name: event.hub?.name || '',
+        hub_timezone: event.hub?.timezone || '',
         host_slug: event.hubHost?.slug || '',
+        host_name: event.hubHost?.name || '',
+        host_url: event.hubHost?.websiteUrl || '',
       };
     });
 

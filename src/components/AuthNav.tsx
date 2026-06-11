@@ -33,6 +33,9 @@ export default function AuthNav({ mobile }: AuthNavProps) {
         <Link href="/subscriptions" className={linkClass}>
           My Subscriptions
         </Link>
+        <Link href="/itinerary" className={linkClass}>
+          My Itineraries
+        </Link>
         <Link href="/speaker-profile" className={linkClass}>
           Speaker Profile
         </Link>

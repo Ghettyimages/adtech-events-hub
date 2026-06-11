@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { z } from 'zod';
 import { Filter, getFilterDescription, getMatchingEvents } from '@/lib/filters';
 import { resolveFilterHubContext } from '@/lib/hubs';
+import { getHubGcalConnected, provisionAndSyncHub } from '@/lib/hubGcal';
 
 const hubFilterSchema = z.object({
   filter: z.object({
@@ -140,6 +141,23 @@ export async function POST(request: NextRequest) {
       select: { feedToken: true },
     });
 
+    let gcalSynced = false;
+    let gcalSyncError: string | null = null;
+    const gcalConnected = await getHubGcalConnected(session.user.id);
+
+    if (gcalConnected) {
+      try {
+        const syncResult = await provisionAndSyncHub(session.user.id, hub.id);
+        gcalSynced = syncResult.synced > 0;
+        if (syncResult.errors.length > 0) {
+          gcalSyncError = syncResult.errors[0];
+        }
+      } catch (error) {
+        console.error('Hub subscription Google sync failed:', error);
+        gcalSyncError = 'Failed to sync to Google Calendar';
+      }
+    }
+
     return NextResponse.json({
       subscription,
       feedToken: userWithToken?.feedToken || null,
@@ -147,6 +165,9 @@ export async function POST(request: NextRequest) {
       filterDescription: getFilterDescription(filter as Filter),
       message: `Hub subscription created. ${filterStats.matchCount} events matched.`,
       eventsAdded: filterStats.matchCount,
+      gcalConnected,
+      gcalSynced,
+      gcalSyncError,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

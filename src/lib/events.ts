@@ -23,6 +23,8 @@ export {
   isAllDayEvent,
 };
 
+export { formatSponsorLine } from '@/lib/sponsorExtract';
+
 type DisplayTemporal = {
   temporalKind?: string | null;
   timezone?: string | null;

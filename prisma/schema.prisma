@@ -21,6 +21,8 @@ model Event {
   allDayEndDate      DateTime? @db.Date // inclusive last calendar day
   dateRepairedAt     DateTime? // set by repair-event-dates script only
   source      String?  // e.g., "Beeler.Tech", "IAB", etc.
+  sponsoredBy String?  // partner/sponsor name, e.g. "Google"
+  sponsorKind String?  // SPONSORED | PARTNERSHIP
 
   // NEW: tags and structured location fields
   // NOTE: Changed from String[] to String for SQLite compatibility - store as JSON string
@@ -56,6 +58,8 @@ model Event {
   follows     EventFollow[]
   userEventSyncs UserEventSync[]
   filterExclusions FilterExclusion[]
+  itineraryItems ItineraryItem[]
+  itineraryExclusions ItineraryExclusion[]
   submitter   User?    @relation("SubmittedEvents", fields: [submittedBy], references: [id])
 
   @@index([duplicateReviewStatus])
@@ -83,6 +87,9 @@ model EventHub {
 
   hosts  HubHost[]
   events Event[]
+  hubCalendarSyncs HubCalendarSync[]
+  itineraries Itinerary[]
+  itineraryItems ItineraryItem[]
 
   @@index([status, start])
 }
@@ -103,9 +110,68 @@ model HubHost {
 
   hub    EventHub @relation(fields: [hubId], references: [id], onDelete: Cascade)
   events Event[]
+  itineraryItems ItineraryItem[]
 
   @@unique([hubId, slug])
   @@index([hubId, featured])
+}
+
+model Itinerary {
+  id                    String    @id @default(cuid())
+  userId                String
+  name                  String
+  slug                  String
+  optionalHubId         String?
+  gcalCalendarId        String?
+  gcalSyncEnabled       Boolean   @default(false)
+  gcalSyncPending       Boolean   @default(false)
+  gcalLastSyncedAt      DateTime?
+  gcalLastSyncError     String?
+  gcalLastSyncAttemptAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hub        EventHub?            @relation(fields: [optionalHubId], references: [id], onDelete: SetNull)
+  items      ItineraryItem[]
+  exclusions ItineraryExclusion[]
+
+  @@unique([userId, slug])
+  @@index([userId])
+  @@index([gcalSyncPending])
+}
+
+model ItineraryItem {
+  id          String   @id @default(cuid())
+  itineraryId String
+  kind        String   // EVENT | HOST | HUB
+  eventId     String?
+  hubHostId   String?
+  hubId       String?
+  createdAt   DateTime @default(now())
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  event     Event?    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  hubHost   HubHost?  @relation(fields: [hubHostId], references: [id], onDelete: Cascade)
+  hub       EventHub? @relation(fields: [hubId], references: [id], onDelete: Cascade)
+
+  @@index([itineraryId])
+  @@index([eventId])
+  @@index([hubHostId])
+  @@index([hubId])
+}
+
+model ItineraryExclusion {
+  id          String   @id @default(cuid())
+  itineraryId String
+  eventId     String
+  createdAt   DateTime @default(now())
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([itineraryId, eventId])
+  @@index([itineraryId])
 }
 
 model MonitoredUrl {
@@ -162,6 +228,10 @@ model User {
   filterExclusions FilterExclusion[]
   // Events submitted by this user
   submittedEvents Event[] @relation("SubmittedEvents")
+  // Festival hub Google Calendar sync
+  hubCalendarSyncs HubCalendarSync[]
+  // Personal itineraries
+  itineraries Itinerary[]
   // Speaker profile (1:1)
   speakerProfile SpeakerProfile?
 }
@@ -244,16 +314,36 @@ model Tag {
 }
 
 model UserEventSync {
-  id          String   @id @default(cuid())
-  userId      String
-  eventId     String
-  gcalEventId String?  // Google Calendar event ID (optional, for faster lookups)
-  syncedAt    DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  @@unique([userId, eventId])
+  id             String   @id @default(cuid())
+  userId         String
+  eventId        String
+  gcalCalendarId String   // Google calendar this event was synced to
+  gcalEventId    String?  // Google Calendar event ID (optional, for faster lookups)
+  syncedAt       DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event          Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  @@unique([userId, eventId, gcalCalendarId])
   @@index([userId])
   @@index([eventId])
+  @@index([userId, gcalCalendarId])
+}
+
+model HubCalendarSync {
+  id                    String    @id @default(cuid())
+  userId                String
+  hubId                 String
+  gcalCalendarId        String?
+  gcalSyncEnabled       Boolean   @default(false)
+  gcalSyncPending       Boolean   @default(false)
+  gcalLastSyncedAt      DateTime?
+  gcalLastSyncError     String?
+  gcalLastSyncAttemptAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hub                   EventHub  @relation(fields: [hubId], references: [id], onDelete: Cascade)
+  @@unique([userId, hubId])
+  @@index([gcalSyncPending])
 }
 
 model FilterExclusion {

@@ -8,6 +8,7 @@ import Link from 'next/link';
 import CalendarInstructions from '@/components/CalendarInstructions';
 import { buildGoogleCalendarSubscribeUrl } from '@/lib/events';
 import { getFilterDescription, parseFilter } from '@/lib/filters';
+import type { ItinerarySummary } from '@/lib/itineraryConstants';
 
 interface Subscription {
   id: string;
@@ -81,6 +82,11 @@ function SubscriptionsPageContent() {
   const [filterSubscriptions, setFilterSubscriptions] = useState<FilterSubscription[]>([]);
   const [hubSubscriptions, setHubSubscriptions] = useState<FilterSubscription[]>([]);
   const [deletingFilterId, setDeletingFilterId] = useState<string | null>(null);
+  const [hubSyncingSlug, setHubSyncingSlug] = useState<string | null>(null);
+  const [hubSyncResults, setHubSyncResults] = useState<Record<string, string>>({});
+  const [itineraries, setItineraries] = useState<ItinerarySummary[]>([]);
+  const [itinerarySyncingId, setItinerarySyncingId] = useState<string | null>(null);
+  const [itinerarySyncResults, setItinerarySyncResults] = useState<Record<string, string>>({});
   
   // Modal state for unfollow exclusion choice
   const [unfollowModal, setUnfollowModal] = useState<{
@@ -111,6 +117,7 @@ function SubscriptionsPageContent() {
     if (status === 'authenticated' && session) {
       console.log('🔍 Fetching subscriptions and checking Google Calendar status...');
       fetchSubscriptions();
+      fetchItineraries();
       checkGoogleCalendarStatus();
     }
   }, [status, session, router]);
@@ -328,6 +335,81 @@ function SubscriptionsPageContent() {
       });
     } finally {
       setIsCleaningUp(false);
+    }
+  };
+
+  const fetchItineraries = async () => {
+    try {
+      const res = await fetch('/api/itineraries');
+      if (res.ok) {
+        const data = await res.json();
+        setItineraries(data.itineraries ?? []);
+      }
+    } catch (error) {
+      console.error('Error fetching itineraries:', error);
+    }
+  };
+
+  const handleItinerarySync = async (itineraryId: string) => {
+    setItinerarySyncingId(itineraryId);
+    setItinerarySyncResults((prev) => ({ ...prev, [itineraryId]: '' }));
+    try {
+      await fetch('/api/mine/gcal/itinerary/ensure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itineraryId }),
+      });
+      const response = await fetch('/api/mine/gcal/itinerary/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itineraryId }),
+      });
+      const data = await response.json();
+      setItinerarySyncResults((prev) => ({
+        ...prev,
+        [itineraryId]: response.ok
+          ? data.message || `Synced ${data.synced} event(s)`
+          : data.error || 'Sync failed',
+      }));
+      await fetchItineraries();
+    } catch (error: unknown) {
+      setItinerarySyncResults((prev) => ({
+        ...prev,
+        [itineraryId]: error instanceof Error ? error.message : 'Sync failed',
+      }));
+    } finally {
+      setItinerarySyncingId(null);
+    }
+  };
+
+  const handleHubSync = async (hubSlug: string) => {
+    setHubSyncingSlug(hubSlug);
+    setHubSyncResults((prev) => ({ ...prev, [hubSlug]: '' }));
+    try {
+      await fetch('/api/mine/gcal/hub/ensure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hubSlug }),
+      });
+      const response = await fetch('/api/mine/gcal/hub/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hubSlug }),
+      });
+      const data = await response.json();
+      setHubSyncResults((prev) => ({
+        ...prev,
+        [hubSlug]: response.ok
+          ? data.message || `Synced ${data.synced} event(s)`
+          : data.error || 'Sync failed',
+      }));
+    } catch (error: unknown) {
+      setHubSyncResults((prev) => ({
+        ...prev,
+        [hubSlug]: error instanceof Error ? error.message : 'Sync failed',
+      }));
+    } finally {
+      setHubSyncingSlug(null);
     }
   };
 
@@ -1025,6 +1107,75 @@ function SubscriptionsPageContent() {
             )}
           </div>
 
+          {/* My Itineraries */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                My Itineraries ({itineraries.length})
+              </h3>
+              <Link
+                href="/itinerary"
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline min-h-[44px] inline-flex items-center"
+              >
+                Manage itineraries
+              </Link>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Personal plans with their own Google Calendar. Only timed festival events sync; date-only events stay in the app.
+            </p>
+            {itineraries.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                No itineraries yet.{' '}
+                <Link href="/itinerary" className="text-blue-600 hover:underline">
+                  Create one
+                </Link>{' '}
+                from Festival Hubs.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {itineraries.map((it) => (
+                  <div
+                    key={it.id}
+                    className="p-4 border border-indigo-200 dark:border-indigo-700 rounded-lg bg-indigo-50 dark:bg-indigo-900/20"
+                  >
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      <div>
+                        <Link
+                          href={`/itinerary/${it.slug}`}
+                          className="font-semibold text-gray-900 dark:text-white text-sm hover:underline"
+                        >
+                          {it.name}
+                        </Link>
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                          {it.timedEventCount} timed / {it.eventCount} total events
+                          {it.gcalSyncEnabled ? ' · GCal on' : ''}
+                        </p>
+                        {it.gcalLastSyncError && (
+                          <p className="text-xs text-red-600 mt-1">{it.gcalLastSyncError}</p>
+                        )}
+                      </div>
+                      {it.gcalSyncEnabled && (
+                        <button
+                          type="button"
+                          onClick={() => handleItinerarySync(it.id)}
+                          disabled={itinerarySyncingId === it.id || !gcalConnected}
+                          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 min-h-[44px]"
+                        >
+                          {itinerarySyncingId === it.id ? 'Syncing...' : 'Sync now'}
+                        </button>
+                      )}
+                    </div>
+                    {itinerarySyncResults[it.id] && (
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
+                        {itinerarySyncResults[it.id]}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Hub Subscriptions Section */}
           {hubSubscriptions.length > 0 && feedToken && (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4">
@@ -1032,7 +1183,8 @@ function SubscriptionsPageContent() {
                 Festival Hub Subscriptions ({hubSubscriptions.length})
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Separate iCal feeds for festival side events (not included in the main calendar).
+                Festival events sync to a separate Google calendar from the main Media Calendar.
+                You can also download an iCal feed below.
               </p>
               <div className="space-y-3">
                 {hubSubscriptions.map((hubSub) => {
@@ -1069,10 +1221,39 @@ function SubscriptionsPageContent() {
                           {deletingFilterId === hubSub.id ? 'Deleting...' : 'Delete'}
                         </button>
                       </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleHubSync(hubSlug)}
+                          disabled={hubSyncingSlug === hubSlug || !gcalConnected}
+                          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 min-h-[44px]"
+                        >
+                          {hubSyncingSlug === hubSlug ? 'Syncing...' : 'Sync to Google Calendar'}
+                        </button>
+                        {hubFeedUrl && (
+                          <a
+                            href={hubFeedUrl}
+                            download="festival-hub.ics"
+                            className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition min-h-[44px] inline-flex items-center"
+                          >
+                            Download .ics
+                          </a>
+                        )}
+                      </div>
+                      {!gcalConnected && (
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">
+                          Connect Google Calendar above to sync festival events.
+                        </p>
+                      )}
+                      {hubSyncResults[hubSlug] && (
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
+                          {hubSyncResults[hubSlug]}
+                        </p>
+                      )}
                       {hubFeedUrl && (
                         <div className="mt-3">
                           <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                            Hub iCal feed URL
+                            iCal feed URL (manual)
                           </label>
                           <input
                             type="text"

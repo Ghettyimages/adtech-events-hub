@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { mainCalendarEventWhere } from '@/lib/hubs';
+import { syncHubEventsToGoogleCalendar } from '@/lib/hubGcal';
+import { syncItineraryEventsToGoogleCalendar } from '@/lib/itineraryGcal';
+import { ITINERARY_LIMITS } from '@/lib/itineraryConstants';
 import {
   provisionAndClaimCalendar,
   upsertEventToGoogleCalendar,
-  deleteEventFromGoogleCalendar,
   convertEventToGoogleCalendar,
-  generateEventICalUID,
   refreshAndUpdateToken,
 } from '@/lib/gcal';
 
@@ -41,6 +43,10 @@ export async function GET(request: NextRequest) {
     const results = {
       processed: 0,
       synced: 0,
+      hubProcessed: 0,
+      hubSynced: 0,
+      itineraryProcessed: 0,
+      itinerarySynced: 0,
       errors: [] as string[],
     };
 
@@ -176,9 +182,59 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const hubSyncs = await prisma.hubCalendarSync.findMany({
+      where: { gcalSyncPending: true, gcalCalendarId: { not: null } },
+      take: 50,
+      select: { userId: true, hubId: true },
+    });
+
+    for (const hubSync of hubSyncs) {
+      try {
+        const syncResult = await syncHubEventsToGoogleCalendar(
+          hubSync.userId,
+          hubSync.hubId
+        );
+        results.hubProcessed++;
+        results.hubSynced += syncResult.synced;
+        if (syncResult.errors.length > 0) {
+          results.errors.push(
+            ...syncResult.errors.map((e) => `Hub ${hubSync.hubId}: ${e}`)
+          );
+        }
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        results.errors.push(`Hub sync user ${hubSync.userId}: ${msg}`);
+      }
+    }
+
+    const itinerarySyncs = await prisma.itinerary.findMany({
+      where: { gcalSyncPending: true, gcalCalendarId: { not: null } },
+      take: ITINERARY_LIMITS.CRON_TAKE,
+      select: { id: true, userId: true },
+    });
+
+    for (const it of itinerarySyncs) {
+      try {
+        const syncResult = await syncItineraryEventsToGoogleCalendar(
+          it.userId,
+          it.id
+        );
+        results.itineraryProcessed++;
+        results.itinerarySynced += syncResult.synced;
+        if (syncResult.errors.length > 0) {
+          results.errors.push(
+            ...syncResult.errors.map((e) => `Itinerary ${it.id}: ${e}`)
+          );
+        }
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        results.errors.push(`Itinerary sync user ${it.userId}: ${msg}`);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: `Processed ${results.processed} users, synced ${results.synced} events`,
+      message: `Processed ${results.processed} users, synced ${results.synced} main events; ${results.hubProcessed} hub calendars, ${results.hubSynced} hub events; ${results.itineraryProcessed} itineraries, ${results.itinerarySynced} itinerary events`,
       ...results,
     });
   } catch (error: any) {

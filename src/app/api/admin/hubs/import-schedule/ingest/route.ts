@@ -29,6 +29,8 @@ function toExtractedEvents(
     end: e.end,
     timezone: e.timezone,
     tags: e.tags,
+    sponsoredBy: e.sponsoredBy ?? undefined,
+    sponsorKind: e.sponsorKind ?? undefined,
     source,
     url,
     date_status: 'confirmed' as const,

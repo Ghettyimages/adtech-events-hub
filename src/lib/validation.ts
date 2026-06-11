@@ -28,6 +28,8 @@ export const createEventSchema = z.object({
   end: dateOrDateTimeString,
   timezone: z.union([z.string().max(50), z.literal(''), z.null()]).optional(),
   source: z.union([z.string().max(100), z.literal(''), z.null()]).optional(),
+  sponsoredBy: z.union([z.string().max(200), z.literal(''), z.null()]).optional(),
+  sponsorKind: z.enum(['SPONSORED', 'PARTNERSHIP']).nullable().optional(),
   // NEW: tags and structured location fields
   tags: z.array(z.string()).nullable().optional(),
   country: z.union([z.string().max(100), z.literal(''), z.null()]).optional(),

@@ -22,8 +22,10 @@ Hub-scoped events are excluded from the main calendar and FULL iCal feed by defa
 
 - Kind: `HUB` on `Subscription`
 - Filter JSON: `{ "hubSlug": "cannes-2026", "hostSlugs": ["iab"], "tags": [] }`
-- iCal feed: `GET /api/feed/hub?token=...&hub=cannes-2026`
-- Event titles in feed are prefixed with hub label, e.g. `[Cannes]`
+- **Google Calendar (primary):** Sign in, subscribe on the hub or host page, connect Google Calendar. A dedicated calendar named after the festival (e.g. `Cannes Lions 2026`) is created and events sync automatically. Host-scoped subscriptions share the same festival calendar; only matching events sync.
+- **iCal feed (secondary):** `GET /api/feed/hub?token=...&hub=cannes-2026` — available from subscribe modal “Other options”, subscriptions page, and per-event Download .ics
+- Event titles in feeds and Google Calendar are prefixed with hub label, e.g. `[Cannes]`
+- API: `POST /api/mine/gcal/hub/ensure`, `POST /api/mine/gcal/hub/sync`, `GET /api/mine/gcal/hub/status?hubSlug=`
 
 ## Admin
 

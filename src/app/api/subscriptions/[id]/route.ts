@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { z } from 'zod';
 import { getFilterDescription, parseFilter } from '@/lib/filters';
+import { syncHubEventsToGoogleCalendar } from '@/lib/hubGcal';
 
 const deleteSchema = z.object({
   keepFollows: z.boolean().optional(), // If true, keep EventFollow records; if false, delete them
@@ -170,10 +171,28 @@ export async function DELETE(
       where: { subscriptionId: id },
     });
 
-    // Delete the subscription
+    const hubSlug =
+      subscription.kind === 'HUB' && subscription.filter
+        ? parseFilter(subscription.filter)?.hubSlug
+        : undefined;
+
     await prisma.subscription.delete({
       where: { id },
     });
+
+    if (hubSlug) {
+      const hub = await prisma.eventHub.findUnique({
+        where: { slug: hubSlug },
+        select: { id: true },
+      });
+      if (hub) {
+        try {
+          await syncHubEventsToGoogleCalendar(session.user.id, hub.id);
+        } catch (error) {
+          console.error('Failed to re-sync hub calendar after subscription delete:', error);
+        }
+      }
+    }
 
     return NextResponse.json({
       message: 'Subscription deleted successfully',

@@ -44,7 +44,7 @@ function filterByStatus(events: Event[], statusFilter: StatusFilter): Event[] {
 
 function countBulkTargets(
   events: Event[],
-  field: 'url' | 'location' | 'source',
+  field: 'url' | 'location' | 'source' | 'sponsoredBy',
   mode: BulkMode
 ): { affected: number; skipped: number } {
   let affected = 0;
@@ -110,9 +110,11 @@ export default function HostEventsSection({
   const [bulkUrl, setBulkUrl] = useState('');
   const [bulkLocation, setBulkLocation] = useState('');
   const [bulkSource, setBulkSource] = useState(hostName);
+  const [bulkSponsoredBy, setBulkSponsoredBy] = useState('');
   const [updateUrl, setUpdateUrl] = useState(false);
   const [updateLocation, setUpdateLocation] = useState(false);
   const [updateSource, setUpdateSource] = useState(false);
+  const [updateSponsoredBy, setUpdateSponsoredBy] = useState(false);
   const [updateAddTags, setUpdateAddTags] = useState(false);
   const [updateRemoveTags, setUpdateRemoveTags] = useState(false);
   const [bulkAddTags, setBulkAddTags] = useState('');
@@ -201,6 +203,12 @@ export default function HostEventsSection({
         `Source: ${affected} event${affected === 1 ? '' : 's'}${skipped ? ` (${skipped} skipped)` : ''}`
       );
     }
+    if (updateSponsoredBy) {
+      const { affected, skipped } = countBulkTargets(scopeEvents, 'sponsoredBy', bulkMode);
+      parts.push(
+        `Sponsored by: ${affected} event${affected === 1 ? '' : 's'}${skipped ? ` (${skipped} skipped)` : ''}`
+      );
+    }
     if (updateAddTags && parsedAddTags.length > 0) {
       const affected = countTagAddTargets(scopeEvents, parsedAddTags);
       const skipped = scopeEvents.length - affected;
@@ -220,6 +228,7 @@ export default function HostEventsSection({
     updateUrl,
     updateLocation,
     updateSource,
+    updateSponsoredBy,
     updateAddTags,
     updateRemoveTags,
     parsedAddTags,
@@ -244,7 +253,14 @@ export default function HostEventsSection({
   };
 
   const handleBulkApply = async () => {
-    if (!updateUrl && !updateLocation && !updateSource && !updateAddTags && !updateRemoveTags) {
+    if (
+      !updateUrl &&
+      !updateLocation &&
+      !updateSource &&
+      !updateSponsoredBy &&
+      !updateAddTags &&
+      !updateRemoveTags
+    ) {
       setBulkMessage('Select at least one field or tag action.');
       return;
     }
@@ -260,6 +276,10 @@ export default function HostEventsSection({
       setBulkMessage('Enter a source or uncheck Update source.');
       return;
     }
+    if (updateSponsoredBy && !bulkSponsoredBy.trim()) {
+      setBulkMessage('Enter a sponsor/partner or uncheck Update sponsored by.');
+      return;
+    }
     if (updateAddTags && parsedAddTags.length === 0) {
       setBulkMessage('Enter at least one tag to add, or uncheck Add tags.');
       return;
@@ -271,10 +291,10 @@ export default function HostEventsSection({
 
     const preview = bulkPreview.join('\n');
     const fieldModeNote =
-      updateUrl || updateLocation || updateSource
+      updateUrl || updateLocation || updateSource || updateSponsoredBy
         ? bulkMode === 'overwrite'
-          ? '\n\nURL/location/source: existing values will be overwritten where selected.'
-          : '\n\nURL/location/source: only empty fields will be updated.'
+          ? '\n\nURL/location/source/sponsored by: existing values will be overwritten where selected.'
+          : '\n\nURL/location/source/sponsored by: only empty fields will be updated.'
         : '';
     const tagModeNote =
       updateAddTags || updateRemoveTags
@@ -294,9 +314,11 @@ export default function HostEventsSection({
           url: updateUrl ? bulkUrl.trim() : undefined,
           location: updateLocation ? bulkLocation.trim() : undefined,
           source: updateSource ? bulkSource.trim() : undefined,
+          sponsoredBy: updateSponsoredBy ? bulkSponsoredBy.trim() : undefined,
           updateUrl,
           updateLocation,
           updateSource,
+          updateSponsoredBy,
           addTags: updateAddTags ? parsedAddTags : undefined,
           removeTags: updateRemoveTags ? parsedRemoveTags : undefined,
           updateAddTags,
@@ -455,6 +477,27 @@ export default function HostEventsSection({
                   />
                 </span>
               </label>
+              <label className="flex items-start gap-2 md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={updateSponsoredBy}
+                  onChange={(e) => setUpdateSponsoredBy(e.target.checked)}
+                  className="mt-1"
+                />
+                <span className="flex-1 max-w-md">
+                  <span className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Sponsored by / In partnership with
+                  </span>
+                  <input
+                    type="text"
+                    value={bulkSponsoredBy}
+                    onChange={(e) => setBulkSponsoredBy(e.target.value)}
+                    disabled={!updateSponsoredBy}
+                    placeholder="e.g. Google"
+                    className="w-full border rounded px-2 py-1 text-sm dark:bg-gray-700 dark:border-gray-600 disabled:opacity-50"
+                  />
+                </span>
+              </label>
               <label className="flex items-start gap-2">
                 <input
                   type="checkbox"
@@ -512,7 +555,7 @@ export default function HostEventsSection({
                   checked={bulkMode === 'only_empty'}
                   onChange={() => setBulkMode('only_empty')}
                 />
-                Only fill empty (default) — URL, location, source
+                Only fill empty (default) — URL, location, source, sponsored by
               </label>
               <label className="flex items-center gap-1.5">
                 <input
@@ -521,7 +564,7 @@ export default function HostEventsSection({
                   checked={bulkMode === 'overwrite'}
                   onChange={() => setBulkMode('overwrite')}
                 />
-                Overwrite all in scope — URL, location, source
+                Overwrite all in scope — URL, location, source, sponsored by
               </label>
             </div>
             {bulkPreview.length > 0 && (

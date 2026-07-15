@@ -21,6 +21,7 @@ export default function HostGrid({ hubSlug, hosts }: HostGridProps) {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [activeHostId, setActiveHostId] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -82,7 +83,7 @@ export default function HostGrid({ hubSlug, hosts }: HostGridProps) {
   const showHostSections = !isSearching || filtered.length > 0;
 
   return (
-    <div>
+    <div onMouseLeave={() => setActiveHostId(null)}>
       <div className="mb-6">
         <input
           type="search"
@@ -117,7 +118,16 @@ export default function HostGrid({ hubSlug, hosts }: HostGridProps) {
           )}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {featured.map((host) => (
-              <HostCard key={host.id} hubSlug={hubSlug} host={host} />
+              <HostCard
+                key={host.id}
+                hubSlug={hubSlug}
+                host={host}
+                isActive={activeHostId === host.id}
+                onActivate={() => setActiveHostId(host.id)}
+                onDeactivate={() =>
+                  setActiveHostId((current) => (current === host.id ? null : current))
+                }
+              />
             ))}
           </div>
         </section>
@@ -133,7 +143,16 @@ export default function HostGrid({ hubSlug, hosts }: HostGridProps) {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {rest.map((host) => (
-                <HostCard key={host.id} hubSlug={hubSlug} host={host} />
+                <HostCard
+                  key={host.id}
+                  hubSlug={hubSlug}
+                  host={host}
+                  isActive={activeHostId === host.id}
+                  onActivate={() => setActiveHostId(host.id)}
+                  onDeactivate={() =>
+                    setActiveHostId((current) => (current === host.id ? null : current))
+                  }
+                />
               ))}
             </div>
           )}

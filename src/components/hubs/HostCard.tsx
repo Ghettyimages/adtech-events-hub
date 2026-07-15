@@ -1,22 +1,31 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { format } from 'date-fns';
 import type { HubHostSummary, HubPreviewEvent } from '@/lib/hubs-client';
 
 interface HostCardProps {
   hubSlug: string;
   host: HubHostSummary;
+  isActive: boolean;
+  onActivate: () => void;
+  onDeactivate: () => void;
 }
 
-export default function HostCard({ hubSlug, host }: HostCardProps) {
+export default function HostCard({
+  hubSlug,
+  host,
+  isActive,
+  onActivate,
+  onDeactivate,
+}: HostCardProps) {
   const [preview, setPreview] = useState<HubPreviewEvent[] | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
   const href = `/hubs/${hubSlug}/${host.slug}`;
 
-  const loadPreview = async () => {
+  const loadPreview = useCallback(async () => {
     if (preview !== null || loadingPreview) return;
     setLoadingPreview(true);
     try {
@@ -30,12 +39,20 @@ export default function HostCard({ hubSlug, host }: HostCardProps) {
     } finally {
       setLoadingPreview(false);
     }
+  }, [hubSlug, host.slug, loadingPreview, preview]);
+
+  const handleMouseEnter = () => {
+    onActivate();
+    void loadPreview();
   };
+
+  const showPreview = isActive && (preview?.length ?? 0) > 0;
 
   return (
     <div
-      className="relative"
-      onMouseEnter={loadPreview}
+      className={`relative ${isActive ? 'z-30' : 'z-0'}`}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={onDeactivate}
     >
       <Link
         href={href}
@@ -66,10 +83,13 @@ export default function HostCard({ hubSlug, host }: HostCardProps) {
         </div>
       </Link>
 
-      {/* Desktop hover popover */}
-      {(preview?.length ?? 0) > 0 && (
-        <div className="hidden md:block absolute z-20 left-1/2 -translate-x-1/2 top-full mt-2 w-72 pointer-events-none">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 text-left">
+      {/* Desktop hover popover — pt-2 bridges the gap so leave isn't triggered moving toward it */}
+      {showPreview && (
+        <div
+          className="hidden md:block absolute left-1/2 -translate-x-1/2 top-full pt-2 w-72 pointer-events-none"
+          aria-hidden
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 text-left transition-opacity duration-150">
             <p className="font-semibold text-sm text-gray-900 dark:text-white mb-2">{host.name}</p>
             <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
               {preview!.map((ev) => (

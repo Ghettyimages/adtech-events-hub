@@ -8,7 +8,7 @@ import { normalize_events, ingestScrapedEvents } from '@/lib/tools';
 
 const ingestBodySchema = z.object({
   events: z.array(parsedScheduleEventSchema).min(1),
-  hubSlug: z.string().min(1),
+  hubSlug: z.string().min(1).optional(),
   hostName: z.string().min(1),
   sourceUrl: z.string().optional(),
   defaultTimezone: z.string().optional().default('Europe/Paris'),
@@ -48,16 +48,19 @@ export async function POST(request: NextRequest) {
     const body = ingestBodySchema.parse(await request.json());
     const extracted = toExtractedEvents(body.events, body.hostName, body.sourceUrl);
 
-    const hub = await prisma.eventHub.findUnique({
-      where: { slug: body.hubSlug },
-      select: { timezone: true },
-    });
-    const hubTimezone = hub?.timezone ?? body.defaultTimezone;
+    let timezone = body.defaultTimezone;
+    if (body.hubSlug) {
+      const hub = await prisma.eventHub.findUnique({
+        where: { slug: body.hubSlug },
+        select: { timezone: true },
+      });
+      timezone = hub?.timezone ?? body.defaultTimezone;
+    }
 
     const normalizationResult = await normalize_events({
       events: extracted,
-      defaultTimezone: hubTimezone,
-      hubTimezone,
+      defaultTimezone: timezone,
+      hubTimezone: body.hubSlug ? timezone : undefined,
     });
 
     if (!normalizationResult.ok || normalizationResult.count === 0) {
@@ -80,6 +83,7 @@ export async function POST(request: NextRequest) {
       ...ingestResult,
       normalized: normalizationResult.count,
       normalizationErrors: normalizationResult.errors,
+      destination: body.hubSlug ? 'hub' : 'main',
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

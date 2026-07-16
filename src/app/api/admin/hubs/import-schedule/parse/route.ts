@@ -5,7 +5,7 @@ import { parseHostSchedule } from '@/lib/scheduleParser';
 
 const parseBodySchema = z.object({
   rawText: z.string().min(1),
-  hubSlug: z.string().min(1),
+  hubSlug: z.string().min(1).optional(),
   hostName: z.string().min(1),
   defaultTimezone: z.string().optional().default('Europe/Paris'),
   sourceUrl: z.string().optional(),

@@ -111,6 +111,7 @@ export default function AdminPage() {
 
   // Festival hubs (for assigning events to hubs)
   const [hubsList, setHubsList] = useState<HubOption[]>([]);
+  const [sourceOptions, setSourceOptions] = useState<string[]>([]);
   const EMPTY_HUB_ASSIGN: HubAssignValue = {
     hubSlug: '',
     hostName: '',
@@ -132,6 +133,17 @@ export default function AdminPage() {
       setHubsList(data.hubs || []);
     } catch (err) {
       console.error('Failed to fetch hubs:', err);
+    }
+  }, []);
+
+  const fetchSources = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/sources');
+      if (!res.ok) return;
+      const data = await res.json();
+      setSourceOptions(Array.isArray(data.sources) ? data.sources : []);
+    } catch (err) {
+      console.error('Failed to fetch sources:', err);
     }
   }, []);
 
@@ -263,8 +275,10 @@ export default function AdminPage() {
         return;
       }
       fetchMonitoredUrls();
+      fetchHubs();
+      fetchSources();
     }
-  }, [status, session, router]);
+  }, [status, session, router, fetchHubs, fetchSources]);
 
   // Fetch tags when Tags tab is active
   useEffect(() => {
@@ -797,8 +811,11 @@ export default function AdminPage() {
   };
 
   const handleParseSchedule = async () => {
-    if (!scheduleRawText.trim() || !scheduleHub.hubSlug || !scheduleHub.hostName.trim()) {
-      setFeedback('error', 'Paste schedule text, select a hub, and enter a host name.');
+    if (!scheduleRawText.trim() || !scheduleHub.hostName.trim()) {
+      setFeedback(
+        'error',
+        'Paste schedule text and enter a source/host name (hub is optional for the main calendar).'
+      );
       return;
     }
     setScheduleParsing(true);
@@ -810,7 +827,7 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rawText: scheduleRawText,
-          hubSlug: scheduleHub.hubSlug,
+          hubSlug: scheduleHub.hubSlug || undefined,
           hostName: scheduleHub.hostName.trim(),
           defaultTimezone: scheduleDefaultTz,
           sourceUrl: scheduleSourceUrl.trim() || undefined,
@@ -847,8 +864,8 @@ export default function AdminPage() {
       setFeedback('error', 'Select at least one session to import.');
       return;
     }
-    if (!scheduleHub.hubSlug || !scheduleHub.hostName.trim()) {
-      setFeedback('error', 'Hub and host name are required.');
+    if (!scheduleHub.hostName.trim()) {
+      setFeedback('error', 'Source / host name is required.');
       return;
     }
     setScheduleIngesting(true);
@@ -858,7 +875,7 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           events: selected.map(({ included: _i, ...rest }) => rest),
-          hubSlug: scheduleHub.hubSlug,
+          hubSlug: scheduleHub.hubSlug || undefined,
           hostName: scheduleHub.hostName.trim(),
           sourceUrl: scheduleSourceUrl.trim() || undefined,
           defaultTimezone: scheduleDefaultTz,
@@ -866,8 +883,6 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to import schedule');
-      const hubName =
-        hubsList.find((h) => h.slug === scheduleHub.hubSlug)?.name ?? scheduleHub.hubSlug;
       const created = data.created ?? 0;
       const flagged = data.flaggedDuplicate ?? 0;
       const skipped = data.skipped ?? 0;
@@ -875,15 +890,37 @@ export default function AdminPage() {
       const normErrors = Array.isArray(data.normalizationErrors)
         ? data.normalizationErrors.filter(Boolean)
         : [];
-      setFeedback(
-        'success',
-        `Imported ${created + flagged} event(s) to “${hubName}” hub pending (${created} new, ${flagged} possible duplicates${skipped ? `, ${skipped} skipped` : ''}${errors ? `, ${errors} errors` : ''}${normErrors.length ? `; ${normErrors.length} row(s) failed normalization` : ''}). Approve in the Hub Pending tab below.`
-      );
+      const statsNote = `(${created} new, ${flagged} possible duplicates${skipped ? `, ${skipped} skipped` : ''}${errors ? `, ${errors} errors` : ''}${normErrors.length ? `; ${normErrors.length} row(s) failed normalization` : ''})`;
+      const toMain = !scheduleHub.hubSlug;
+      if (toMain) {
+        setFeedback(
+          'success',
+          `Imported ${created + flagged} event(s) to main calendar pending ${statsNote}. Approve in the Pending tab below.`
+        );
+        const newSource = scheduleHub.hostName.trim();
+        if (
+          newSource &&
+          !sourceOptions.some((s) => s.toLowerCase() === newSource.toLowerCase())
+        ) {
+          setSourceOptions((prev) => [...prev, newSource].sort((a, b) => a.localeCompare(b)));
+        }
+        await fetchPendingEvents();
+        await fetchSources();
+        setEventViewMode('pending');
+      } else {
+        const hubName =
+          hubsList.find((h) => h.slug === scheduleHub.hubSlug)?.name ?? scheduleHub.hubSlug;
+        setFeedback(
+          'success',
+          `Imported ${created + flagged} event(s) to “${hubName}” hub pending ${statsNote}. Approve in the Hub Pending tab below.`
+        );
+        await fetchHubPendingEvents();
+        await fetchHubs();
+        setEventViewMode('hub-pending');
+      }
       setSchedulePreview([]);
       setScheduleRawText('');
       setScheduleWarnings([]);
-      await fetchHubPendingEvents();
-      setEventViewMode('hub-pending');
       setAdminTab('events');
       requestAnimationFrame(() => {
         document.getElementById('admin-events-section')?.scrollIntoView({ behavior: 'smooth' });
@@ -1407,16 +1444,18 @@ export default function AdminPage() {
         </form>
       </div>
 
-      {/* Import host schedule (festival hub paste) */}
+      {/* Import schedule (hub or main calendar paste) */}
       <div className="bg-white dark:bg-gray-800 border border-purple-200 dark:border-purple-800 rounded-lg p-6 mb-8 shadow-md">
         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-1">
-          🎪 Import host schedule
+          🎪 Import schedule
         </h2>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-          Paste a host&apos;s festival agenda (day headers, time ranges, venues). Parse with AI, review, then import to Hub Pending.
+          Paste an agenda (day headers, time ranges, venues). Parse with AI, review, then import.
+          Leave hub as <strong>None</strong> to add to the main calendar; pick a hub for festival Hub Pending.
         </p>
         <p className="text-xs text-purple-700 dark:text-purple-300 mb-4">
-          After import, open the <strong>Hub pending</strong> tab under Events (page scrolls there automatically) to approve sessions for the festival hub page.
+          After import, the page scrolls to Events so you can approve in <strong>Pending</strong> (main calendar) or{' '}
+          <strong>Hub pending</strong> (festival hub).
         </p>
         <div className="space-y-4">
           <div className="rounded-lg border border-dashed border-purple-300 dark:border-purple-700 p-4">
@@ -1430,6 +1469,8 @@ export default function AdminPage() {
                   if (hub?.timezone) setScheduleDefaultTz(hub.timezone);
                 }
               }}
+              sourceOptions={sourceOptions}
+              requireSource
               showMainToggle={false}
               idPrefix="schedule-hub"
             />
@@ -1498,7 +1539,9 @@ export default function AdminPage() {
           <button
             type="button"
             onClick={handleParseSchedule}
-            disabled={scheduleParsing || !scheduleRawText.trim()}
+            disabled={
+              scheduleParsing || !scheduleRawText.trim() || !scheduleHub.hostName.trim()
+            }
             className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {scheduleParsing ? 'Parsing…' : 'Parse schedule'}

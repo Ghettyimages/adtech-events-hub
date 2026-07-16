@@ -1,5 +1,8 @@
 'use client';
 
+import { useMemo } from 'react';
+import SourceCombobox from './SourceCombobox';
+
 export interface HubHostOption {
   id: string;
   slug: string;
@@ -27,10 +30,17 @@ interface HubAssignFieldsProps {
   onChange: (next: HubAssignValue) => void;
   /** Suggested host name (e.g. the source name) shown as placeholder. */
   hostSuggestion?: string;
+  /** Distinct Event.source values for main-calendar / write-in suggestions. */
+  sourceOptions?: string[];
   /** Show the "also show on main calendar" toggle (default true). */
   showMainToggle?: boolean;
   /** Hide the host field entirely (e.g. CSV upload where host comes per-row). */
   hubOnly?: boolean;
+  /**
+   * Always show source/host field even when no hub is selected
+   * (schedule paste → main calendar).
+   */
+  requireSource?: boolean;
   idPrefix?: string;
   className?: string;
 }
@@ -45,14 +55,32 @@ export default function HubAssignFields({
   value,
   onChange,
   hostSuggestion,
+  sourceOptions = [],
   showMainToggle = true,
   hubOnly = false,
+  requireSource = false,
   idPrefix = 'hub-assign',
   className = '',
 }: HubAssignFieldsProps) {
   const selectedHub = hubs.find((h) => h.slug === value.hubSlug);
   const hosts = selectedHub?.hosts ?? [];
-  const datalistId = `${idPrefix}-host-options`;
+
+  const comboboxOptions = useMemo(() => {
+    const names = new Set<string>();
+    if (value.hubSlug) {
+      for (const host of hosts) {
+        if (host.name?.trim()) names.add(host.name.trim());
+        if (host.sourceAlias?.trim()) names.add(host.sourceAlias.trim());
+      }
+    }
+    for (const s of sourceOptions) {
+      if (s?.trim()) names.add(s.trim());
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [value.hubSlug, hosts, sourceOptions]);
+
+  const showSourceField = !hubOnly && (Boolean(value.hubSlug) || requireSource);
+  const isHubMode = Boolean(value.hubSlug);
 
   return (
     <div className={`space-y-3 ${className}`}>
@@ -77,32 +105,23 @@ export default function HubAssignFields({
         </select>
       </div>
 
-      {!hubOnly && value.hubSlug && (
-        <div>
-          <label htmlFor={`${idPrefix}-host`} className={labelClass}>
-            Host{' '}
-            <span className="font-normal text-gray-400">
-              (write-in — auto-filled from source, editable)
-            </span>
-          </label>
-          <input
-            id={`${idPrefix}-host`}
-            type="text"
-            list={datalistId}
-            value={value.hostName}
-            onChange={(e) => onChange({ ...value, hostName: e.target.value })}
-            placeholder={hostSuggestion || 'e.g. Unplugged Collective'}
-            className={inputClass}
-          />
-          <datalist id={datalistId}>
-            {hosts.map((host) => (
-              <option key={host.id} value={host.name} />
-            ))}
-          </datalist>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            New host names create a new host for this hub on save.
-          </p>
-        </div>
+      {showSourceField && (
+        <SourceCombobox
+          id={`${idPrefix}-host`}
+          value={value.hostName}
+          onChange={(hostName) => onChange({ ...value, hostName })}
+          options={comboboxOptions}
+          label={isHubMode ? 'Host' : 'Source / company'}
+          placeholder={
+            hostSuggestion ||
+            (isHubMode ? 'e.g. Unplugged Collective' : 'Search or type a source…')
+          }
+          hint={
+            isHubMode
+              ? 'Pick an existing host or type a new name — new names create a host for this hub on import.'
+              : 'Pick an existing source or type a new one — new names are used as the event source on import.'
+          }
+        />
       )}
 
       {showMainToggle && value.hubSlug && (

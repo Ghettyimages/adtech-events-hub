@@ -25,12 +25,36 @@ const llmSessionSchema = z.object({
   title: z.string(),
   description: z.string().nullable().optional(),
   location: z.string().nullable().optional(),
-  start: z.string(),
-  end: z.string(),
+  start: z.union([z.string(), z.number()]).transform((v) => String(v)),
+  end: z.union([z.string(), z.number()]).transform((v) => String(v)),
   timezone: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  tags: z
+    .union([z.array(z.string()), z.string()])
+    .optional()
+    .transform((v) => {
+      if (v == null) return undefined;
+      if (Array.isArray(v)) return v;
+      return v
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+    }),
   sponsoredBy: z.string().nullable().optional(),
-  sponsorKind: z.enum(['SPONSORED', 'PARTNERSHIP']).nullable().optional(),
+  sponsorKind: z
+    .union([
+      z.enum(['SPONSORED', 'PARTNERSHIP']),
+      z.string(),
+      z.null(),
+    ])
+    .optional()
+    .nullable()
+    .transform((v) => {
+      if (v == null || v === '') return null;
+      const upper = String(v).trim().toUpperCase();
+      if (upper === 'SPONSORED' || upper === 'SPONSOR') return 'SPONSORED' as const;
+      if (upper === 'PARTNERSHIP' || upper === 'PARTNER') return 'PARTNERSHIP' as const;
+      return null;
+    }),
 });
 
 const llmResponseSchema = z.object({
@@ -55,10 +79,98 @@ export interface ParseScheduleResult {
 
 function sanitizeJsonResponse(raw: string): string {
   const trimmed = raw.trim();
-  if (trimmed.startsWith('```')) {
-    return trimmed.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  let body = trimmed;
+  if (body.startsWith('```')) {
+    body = body.replace(/^```(?:json)?/i, '').replace(/```[\s\S]*$/i, '').trim();
   }
-  return trimmed;
+  // If the model added prose around JSON, extract the first object.
+  if (!body.startsWith('{')) {
+    const start = body.indexOf('{');
+    const end = body.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      body = body.slice(start, end + 1);
+    }
+  }
+  return body;
+}
+
+function coerceSponsorKind(
+  value: unknown
+): 'SPONSORED' | 'PARTNERSHIP' | null | undefined {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string') return null;
+  const upper = value.trim().toUpperCase();
+  if (upper === 'SPONSORED' || upper === 'SPONSOR') return 'SPONSORED';
+  if (
+    upper === 'PARTNERSHIP' ||
+    upper === 'PARTNER' ||
+    upper === 'IN PARTNERSHIP'
+  ) {
+    return 'PARTNERSHIP';
+  }
+  return null;
+}
+
+function coerceTags(value: unknown): string[] | undefined {
+  if (value == null) return undefined;
+  if (Array.isArray(value)) {
+    return value.map((t) => String(t).trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+  return undefined;
+}
+
+function coerceSessionRow(row: unknown): z.infer<typeof llmSessionSchema> | null {
+  if (!row || typeof row !== 'object') return null;
+  const r = row as Record<string, unknown>;
+  const title = typeof r.title === 'string' ? r.title.trim() : String(r.title ?? '').trim();
+  if (!title) return null;
+  const start =
+    typeof r.start === 'string'
+      ? r.start.trim()
+      : r.start != null
+        ? String(r.start).trim()
+        : '';
+  const end =
+    typeof r.end === 'string'
+      ? r.end.trim()
+      : r.end != null
+        ? String(r.end).trim()
+        : '';
+  if (!start || !end) return null;
+
+  return {
+    title,
+    description:
+      r.description == null
+        ? null
+        : typeof r.description === 'string'
+          ? r.description
+          : String(r.description),
+    location:
+      r.location == null
+        ? null
+        : typeof r.location === 'string'
+          ? r.location
+          : String(r.location),
+    start,
+    end,
+    timezone:
+      typeof r.timezone === 'string' && r.timezone.trim()
+        ? r.timezone.trim()
+        : undefined,
+    tags: coerceTags(r.tags),
+    sponsoredBy:
+      r.sponsoredBy == null || r.sponsoredBy === ''
+        ? null
+        : String(r.sponsoredBy),
+    sponsorKind: coerceSponsorKind(r.sponsorKind),
+  };
 }
 
 function applySponsorExtraction(
@@ -224,15 +336,39 @@ ${rawText.slice(0, 120000)}
     throw new Error('LLM returned invalid JSON');
   }
 
+  // Prefer strict schema, but fall back to per-row coercion so one bad field
+  // (e.g. sponsorKind casing) does not fail the whole paste.
   const validated = llmResponseSchema.safeParse(parsed);
-  if (!validated.success) {
-    throw new Error(`Invalid parse shape: ${validated.error.message}`);
+  let rows: z.infer<typeof llmSessionSchema>[] = [];
+  const warnings: string[] = [];
+
+  if (validated.success) {
+    rows = validated.data.events;
+    if (validated.data.warnings?.length) {
+      warnings.push(...validated.data.warnings);
+    }
+  } else {
+    const obj = parsed as { events?: unknown; warnings?: unknown };
+    if (!obj || !Array.isArray(obj.events)) {
+      throw new Error(`Invalid parse shape: ${validated.error.message}`);
+    }
+    warnings.push(
+      'LLM response needed field cleanup (continuing with coerced rows).'
+    );
+    if (Array.isArray(obj.warnings)) {
+      for (const w of obj.warnings) {
+        if (typeof w === 'string' && w.trim()) warnings.push(w);
+      }
+    }
+    for (const item of obj.events) {
+      const coerced = coerceSessionRow(item);
+      if (coerced) rows.push(coerced);
+    }
   }
 
   const events: ParsedScheduleEvent[] = [];
-  const warnings = [...(validated.data.warnings ?? [])];
 
-  for (const row of validated.data.events) {
+  for (const row of rows) {
     const sponsor = applySponsorExtraction(row, hostName);
     const rowResult = parsedScheduleEventSchema.safeParse({
       ...row,

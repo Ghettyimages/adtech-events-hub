@@ -2,17 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { DateTime } from 'luxon';
-import {
-  DEFAULT_TIMED_ZONE,
-  FESTIVAL_HUB_DEFAULT_ZONE,
-} from '@/lib/eventTemporal';
 
 export const SCHEDULE_TZ_PRESETS = [
-  DEFAULT_TIMED_ZONE,
+  'America/New_York',
   'America/Chicago',
   'America/Los_Angeles',
   'Europe/London',
-  FESTIVAL_HUB_DEFAULT_ZONE,
+  'Europe/Paris',
   'UTC',
 ] as const;
 
@@ -47,18 +43,27 @@ export default function ScheduleTimezoneSelect({
     () => (SCHEDULE_TZ_PRESETS as readonly string[]).includes(value),
     [value]
   );
-  const [useOther, setUseOther] = useState(!inPresets);
+
+  // Derive "other" from value so locked/preset changes cannot leave the control stuck.
+  const [customMode, setCustomMode] = useState(!inPresets && !locked);
   const [otherDraft, setOtherDraft] = useState(inPresets ? '' : value);
-  const otherValid = !otherDraft.trim() || isValidIanaTimezone(otherDraft);
 
   useEffect(() => {
-    if (locked || inPresets) {
-      setUseOther(false);
+    if (locked) {
+      setCustomMode(false);
+      return;
+    }
+    if (inPresets) {
+      setCustomMode(false);
       setOtherDraft('');
+    } else if (value) {
+      setCustomMode(true);
+      setOtherDraft(value);
     }
   }, [locked, inPresets, value]);
 
-  const selectValue = !locked && useOther ? '__other__' : value;
+  const selectValue = !locked && customMode ? '__other__' : value;
+  const otherValid = !otherDraft.trim() || isValidIanaTimezone(otherDraft);
 
   return (
     <div className={className}>
@@ -72,11 +77,12 @@ export default function ScheduleTimezoneSelect({
         onChange={(e) => {
           const next = e.target.value;
           if (next === '__other__') {
-            setUseOther(true);
+            setCustomMode(true);
             setOtherDraft('');
             return;
           }
-          setUseOther(false);
+          setCustomMode(false);
+          setOtherDraft('');
           onChange(next);
         }}
         className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent dark:bg-gray-700 dark:text-white disabled:opacity-60 disabled:cursor-not-allowed"
@@ -86,10 +92,10 @@ export default function ScheduleTimezoneSelect({
             {z}
           </option>
         ))}
-        {locked && !inPresets && <option value={value}>{value}</option>}
+        {locked && !inPresets && value ? <option value={value}>{value}</option> : null}
         {!locked && <option value="__other__">Other (custom IANA)…</option>}
       </select>
-      {useOther && !locked && (
+      {customMode && !locked && (
         <input
           type="text"
           value={otherDraft}
@@ -109,7 +115,7 @@ export default function ScheduleTimezoneSelect({
       {helperText && (
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{helperText}</p>
       )}
-      {!locked && useOther && otherDraft.trim() && !otherValid && (
+      {!locked && customMode && otherDraft.trim() && !otherValid && (
         <p className="mt-1 text-xs text-red-600 dark:text-red-400">
           Enter a valid IANA timezone (e.g. America/New_York).
         </p>

@@ -20,6 +20,7 @@ const labelClass =
 
 /**
  * Searchable write-in combobox: pick an existing option or type a new value.
+ * Does not open a full source dump on empty focus (avoids covering fields below).
  */
 export default function SourceCombobox({
   id,
@@ -37,14 +38,16 @@ export default function SourceCombobox({
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  /** Empty query + ArrowDown: show a short browse list. */
+  const [browseEmpty, setBrowseEmpty] = useState(false);
 
   const filtered = useMemo(() => {
     const q = value.trim().toLowerCase();
-    if (!q) return options.slice(0, 50);
+    if (!q) return browseEmpty ? options.slice(0, 12) : [];
     return options
       .filter((opt) => opt.toLowerCase().includes(q))
       .slice(0, 50);
-  }, [options, value]);
+  }, [options, value, browseEmpty]);
 
   const exactMatch = useMemo(() => {
     const q = value.trim().toLowerCase();
@@ -53,6 +56,7 @@ export default function SourceCombobox({
   }, [options, value]);
 
   const showCreateRow = value.trim().length > 0 && !exactMatch;
+  const showList = open && (filtered.length > 0 || showCreateRow);
 
   useEffect(() => {
     setHighlight(0);
@@ -62,6 +66,7 @@ export default function SourceCombobox({
     const onDocClick = (e: MouseEvent) => {
       if (!containerRef.current?.contains(e.target as Node)) {
         setOpen(false);
+        setBrowseEmpty(false);
       }
     };
     document.addEventListener('mousedown', onDocClick);
@@ -71,10 +76,13 @@ export default function SourceCombobox({
   const selectOption = (opt: string) => {
     onChange(opt);
     setOpen(false);
+    setBrowseEmpty(false);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      if (!value.trim()) setBrowseEmpty(true);
       setOpen(true);
       return;
     }
@@ -92,6 +100,7 @@ export default function SourceCombobox({
       if (showCreateRow && highlight === 0) {
         onChange(value.trim());
         setOpen(false);
+        setBrowseEmpty(false);
         return;
       }
       const optIndex = showCreateRow ? highlight - 1 : highlight;
@@ -100,9 +109,11 @@ export default function SourceCombobox({
       } else if (value.trim()) {
         onChange(value.trim());
         setOpen(false);
+        setBrowseEmpty(false);
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
+      setBrowseEmpty(false);
     }
   };
 
@@ -121,19 +132,23 @@ export default function SourceCombobox({
         value={value}
         onChange={(e) => {
           onChange(e.target.value);
+          setBrowseEmpty(false);
           setOpen(true);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          // Only open if there is already text to match — avoid covering fields below.
+          if (value.trim()) setOpen(true);
+        }}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         autoComplete="off"
         className={inputClass}
       />
-      {open && (filtered.length > 0 || showCreateRow) && (
+      {showList && (
         <ul
           id={listId}
           role="listbox"
-          className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800"
+          className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800"
         >
           {showCreateRow && (
             <li
@@ -149,6 +164,7 @@ export default function SourceCombobox({
                 e.preventDefault();
                 onChange(value.trim());
                 setOpen(false);
+                setBrowseEmpty(false);
               }}
             >
               Create new: <span className="font-semibold">{value.trim()}</span>

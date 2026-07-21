@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth-helpers';
 import { parseHostSchedule } from '@/lib/scheduleParser';
+import { DEFAULT_TIMED_ZONE } from '@/lib/eventTemporal';
 
 const parseBodySchema = z.object({
   rawText: z.string().min(1),
   hubSlug: z.string().min(1).optional(),
   hostName: z.string().min(1),
-  defaultTimezone: z.string().optional().default('Europe/Paris'),
+  defaultTimezone: z.string().optional().default(DEFAULT_TIMED_ZONE),
   sourceUrl: z.string().optional(),
   skipUmbrellaEvents: z.boolean().optional().default(true),
 });

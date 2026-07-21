@@ -12,10 +12,17 @@ import HubAssignFields, {
   type HubOption,
   type HubAssignValue,
 } from '@/components/admin/HubAssignFields';
+import ScheduleTimezoneSelect from '@/components/admin/ScheduleTimezoneSelect';
 import AdminPendingEventList from '@/components/admin/AdminPendingEventList';
 import { getDisplayName } from '@/lib/tags';
 import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
-import { isAllDayEvent, TEMPORAL_KIND, formatYmdUtc } from '@/lib/eventTemporal';
+import {
+  isAllDayEvent,
+  TEMPORAL_KIND,
+  formatYmdUtc,
+  DEFAULT_TIMED_ZONE,
+  FESTIVAL_HUB_DEFAULT_ZONE,
+} from '@/lib/eventTemporal';
 import { DateTime } from 'luxon';
 
 /**
@@ -204,7 +211,7 @@ export default function AdminPage() {
   }
   const [scheduleRawText, setScheduleRawText] = useState('');
   const [scheduleHub, setScheduleHub] = useState<HubAssignValue>(EMPTY_HUB_ASSIGN);
-  const [scheduleDefaultTz, setScheduleDefaultTz] = useState('Europe/Paris');
+  const [scheduleDefaultTz, setScheduleDefaultTz] = useState(DEFAULT_TIMED_ZONE);
   const [scheduleSourceUrl, setScheduleSourceUrl] = useState('');
   const [scheduleSkipUmbrella, setScheduleSkipUmbrella] = useState(true);
   const [scheduleParsing, setScheduleParsing] = useState(false);
@@ -941,6 +948,14 @@ export default function AdminPage() {
     );
   };
 
+  const applyBatchTimezoneToPreview = () => {
+    const tz = scheduleDefaultTz.trim();
+    if (!tz) return;
+    setSchedulePreview((rows) =>
+      rows.map((row) => (row.included ? { ...row, timezone: tz } : row))
+    );
+  };
+
   const handleToggleMonitoring = async (id: string, enabled: boolean) => {
     try {
       const res = await fetch('/api/scrape', {
@@ -1463,10 +1478,16 @@ export default function AdminPage() {
               hubs={hubsList}
               value={scheduleHub}
               onChange={(next) => {
+                const prevSlug = scheduleHub.hubSlug;
                 setScheduleHub(next);
                 if (next.hubSlug) {
                   const hub = hubsList.find((h) => h.slug === next.hubSlug);
-                  if (hub?.timezone) setScheduleDefaultTz(hub.timezone);
+                  setScheduleDefaultTz(
+                    hub?.timezone?.trim() || FESTIVAL_HUB_DEFAULT_ZONE
+                  );
+                } else if (prevSlug && !next.hubSlug) {
+                  // Clearing hub must not leave a festival TZ stuck on main paste
+                  setScheduleDefaultTz(DEFAULT_TIMED_ZONE);
                 }
               }}
               sourceOptions={sourceOptions}
@@ -1476,19 +1497,17 @@ export default function AdminPage() {
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="schedule-tz" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Default timezone
-              </label>
-              <input
-                id="schedule-tz"
-                type="text"
-                value={scheduleDefaultTz}
-                onChange={(e) => setScheduleDefaultTz(e.target.value)}
-                placeholder="Europe/Paris"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-              />
-            </div>
+            <ScheduleTimezoneSelect
+              id="schedule-tz"
+              value={scheduleDefaultTz}
+              onChange={setScheduleDefaultTz}
+              locked={Boolean(scheduleHub.hubSlug)}
+              helperText={
+                scheduleHub.hubSlug
+                  ? 'Hub events use the festival timezone (locked).'
+                  : 'Main calendar paste: pick the wall-clock timezone for these sessions.'
+              }
+            />
             <div>
               <label htmlFor="schedule-source-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Event page URL (optional)
@@ -1567,16 +1586,26 @@ export default function AdminPage() {
                 <span className="font-medium text-gray-900 dark:text-white">
                   Preview ({schedulePreview.filter((r) => r.included).length} of {schedulePreview.length} selected)
                 </span>
-                <button
-                  type="button"
-                  onClick={handleIngestSchedule}
-                  disabled={scheduleIngesting || schedulePreview.every((r) => !r.included)}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-semibold disabled:opacity-50"
-                >
-                  {scheduleIngesting
-                    ? 'Importing…'
-                    : `Import ${schedulePreview.filter((r) => r.included).length} event(s)`}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={applyBatchTimezoneToPreview}
+                    disabled={!scheduleDefaultTz.trim()}
+                    className="px-3 py-2 border border-purple-300 dark:border-purple-600 text-purple-800 dark:text-purple-200 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/50 text-sm font-medium disabled:opacity-50"
+                  >
+                    Apply batch timezone to selected
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleIngestSchedule}
+                    disabled={scheduleIngesting || schedulePreview.every((r) => !r.included)}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-semibold disabled:opacity-50"
+                  >
+                    {scheduleIngesting
+                      ? 'Importing…'
+                      : `Import ${schedulePreview.filter((r) => r.included).length} event(s)`}
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
                 <table className="min-w-full text-sm">
@@ -1586,6 +1615,7 @@ export default function AdminPage() {
                       <th className="px-2 py-2 text-left">Title</th>
                       <th className="px-2 py-2 text-left">Start</th>
                       <th className="px-2 py-2 text-left">End</th>
+                      <th className="px-2 py-2 text-left">Timezone</th>
                       <th className="px-2 py-2 text-left">Location</th>
                       <th className="px-2 py-2 text-left">Sponsored by</th>
                       <th className="px-2 py-2 text-left">Tags</th>
@@ -1635,6 +1665,19 @@ export default function AdminPage() {
                             onChange={(e) =>
                               updateSchedulePreviewRow(index, { end: e.target.value })
                             }
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800 font-mono text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[10rem]">
+                          <input
+                            type="text"
+                            value={row.timezone ?? ''}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, {
+                                timezone: e.target.value || undefined,
+                              })
+                            }
+                            placeholder={scheduleDefaultTz}
                             className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800 font-mono text-xs"
                           />
                         </td>

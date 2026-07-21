@@ -5,37 +5,43 @@ import { parsedScheduleEventSchema } from '@/lib/scheduleParser';
 import { ExtractedEvent } from '@/lib/extractor/schema';
 import { prisma } from '@/lib/db';
 import { normalize_events, ingestScrapedEvents } from '@/lib/tools';
+import { DEFAULT_TIMED_ZONE } from '@/lib/eventTemporal';
+import { sanitizeScheduleWallClock } from '@/lib/scheduleWallClock';
 
 const ingestBodySchema = z.object({
   events: z.array(parsedScheduleEventSchema).min(1),
   hubSlug: z.string().min(1).optional(),
   hostName: z.string().min(1),
   sourceUrl: z.string().optional(),
-  defaultTimezone: z.string().optional().default('Europe/Paris'),
+  defaultTimezone: z.string().optional().default(DEFAULT_TIMED_ZONE),
 });
 
 function toExtractedEvents(
   events: z.infer<typeof parsedScheduleEventSchema>[],
   hostName: string,
+  defaultTimezone: string,
   sourceUrl?: string
 ): ExtractedEvent[] {
   const source = hostName.trim();
   const url = sourceUrl?.trim() || undefined;
-  return events.map((e) => ({
-    title: e.title,
-    description: e.description ?? undefined,
-    location: e.location ?? undefined,
-    start: e.start,
-    end: e.end,
-    timezone: e.timezone,
-    tags: e.tags,
-    sponsoredBy: e.sponsoredBy ?? undefined,
-    sponsorKind: e.sponsorKind ?? undefined,
-    source,
-    url,
-    date_status: 'confirmed' as const,
-    location_status: e.location ? ('confirmed' as const) : ('tbd' as const),
-  }));
+  return events.map((e) => {
+    const timezone = (e.timezone?.trim() || defaultTimezone).trim();
+    return {
+      title: e.title,
+      description: e.description ?? undefined,
+      location: e.location ?? undefined,
+      start: sanitizeScheduleWallClock(e.start, timezone),
+      end: sanitizeScheduleWallClock(e.end, timezone),
+      timezone,
+      tags: e.tags,
+      sponsoredBy: e.sponsoredBy ?? undefined,
+      sponsorKind: e.sponsorKind ?? undefined,
+      source,
+      url,
+      date_status: 'confirmed' as const,
+      location_status: e.location ? ('confirmed' as const) : ('tbd' as const),
+    };
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -46,7 +52,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = ingestBodySchema.parse(await request.json());
-    const extracted = toExtractedEvents(body.events, body.hostName, body.sourceUrl);
+    const extracted = toExtractedEvents(
+      body.events,
+      body.hostName,
+      body.defaultTimezone,
+      body.sourceUrl
+    );
 
     let timezone = body.defaultTimezone;
     if (body.hubSlug) {
@@ -57,6 +68,9 @@ export async function POST(request: NextRequest) {
       timezone = hub?.timezone ?? body.defaultTimezone;
     }
 
+    // First-pass normalize must use the correct zone. ingestScrapedEvents will
+    // normalize again; after this pass start/end are UTC ISO with Z, so the
+    // second pass preserves instants (parseTimedToUtc offset/Z branch).
     const normalizationResult = await normalize_events({
       events: extracted,
       defaultTimezone: timezone,

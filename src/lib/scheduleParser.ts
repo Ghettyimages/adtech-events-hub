@@ -127,9 +127,9 @@ Return ONLY valid JSON with this shape:
       "title": "string",
       "description": "string or null",
       "location": "string or null",
-      "start": "ISO 8601 datetime or parseable datetime string",
-      "end": "ISO 8601 datetime or parseable datetime string",
-      "timezone": "IANA timezone e.g. Europe/Paris",
+      "start": "naive local datetime string YYYY-MM-DDTHH:mm:ss (NO Z, NO numeric offset)",
+      "end": "naive local datetime string YYYY-MM-DDTHH:mm:ss (NO Z, NO numeric offset)",
+      "timezone": "IANA timezone e.g. America/New_York or Europe/Paris",
       "tags": ["tag-slug", ...],
       "sponsoredBy": "partner/sponsor name only, or null",
       "sponsorKind": "SPONSORED or PARTNERSHIP or null"
@@ -141,7 +141,11 @@ Return ONLY valid JSON with this shape:
 Rules:
 ${umbrellaRule}
 - When a day header appears (e.g. "Monday, June 22, 2026"), apply that date to sessions below until the next day header.
-- Parse time ranges like "2:00 PM - 2:45 PM (CEST)" into start and end on that day; use the stated timezone or the default timezone provided.
+- Parse time ranges like "2:00 PM - 2:45 PM (CEST)" into start and end on that day.
+- CRITICAL timezone / wall-clock contract:
+  - Emit NAIVE local datetimes only (e.g. "2026-06-22T14:00:00"). Do NOT append "Z" or numeric offsets like "+02:00".
+  - Set every row's "timezone" to the provided default IANA timezone unless the paste explicitly names a different zone for that session.
+  - Abbreviations like CEST, EDT, EST, PDT are labels only — map them to the provided default IANA timezone when ambiguous; never invent UTC offsets.
 - Venue lines (e.g. "Smartly Penthouse", "Amazon Port") belong in location, not title.
 - If "[INVITE ONLY]" or similar appears, add tag "invite-only" (you may keep the phrase in the title).
 ${yearRule}
@@ -164,7 +168,7 @@ export async function parseHostSchedule(
     rawText,
     hubSlug,
     hostName,
-    defaultTimezone = 'Europe/Paris',
+    defaultTimezone = 'America/New_York',
     skipUmbrellaEvents = true,
   } = options;
 

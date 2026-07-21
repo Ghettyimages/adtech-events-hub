@@ -11,13 +11,17 @@ import {
   coerceHubEventTimezone,
   fromCsvRow,
   normalizeEventForWrite,
+  normalizeEventForHubIngest,
   repairHubTimedTemporal,
   storedTemporalEquals,
   toCsvRow,
   toGoogleCalendarPayload,
   utcInstantToWallClockDateTime,
   violatesAllDayStorageContract,
+  DEFAULT_TIMED_ZONE,
+  FESTIVAL_HUB_DEFAULT_ZONE,
 } from '../src/lib/eventTemporal';
+import { sanitizeScheduleWallClock } from '../src/lib/scheduleWallClock';
 
 function testAllDayInvariant() {
   const { start, end } = allDayInstantsFromCivilDates('2026-07-29', '2026-07-31');
@@ -178,6 +182,72 @@ function testDstBoundary() {
   );
 }
 
+/** Main-calendar schedule paste: naive wall-clock in America/New_York. */
+function testScheduleMainCalendarNyWallClock() {
+  const normalized = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: '2026-09-15T14:00',
+    end: '2026-09-15T15:00',
+    timezone: DEFAULT_TIMED_ZONE,
+  });
+  assert.equal(normalized.timezone, 'America/New_York');
+  assert.equal(
+    utcInstantToWallClockDateTime(normalized.start, 'America/New_York'),
+    '2026-09-15T14:00:00'
+  );
+  // EDT (UTC-4): 14:00 NY → 18:00 UTC
+  assert.equal(normalized.start.toISOString(), '2026-09-15T18:00:00.000Z');
+}
+
+/** Hub schedule paste: same wall-clock digits coerced to Europe/Paris. */
+function testScheduleHubParisWallClock() {
+  const { normalized, timezoneOverwritten } = normalizeEventForHubIngest(
+    {
+      temporalKind: TEMPORAL_KIND.TIMED,
+      start: '2026-06-22T14:00',
+      end: '2026-06-22T14:45',
+      timezone: 'America/New_York',
+    },
+    FESTIVAL_HUB_DEFAULT_ZONE
+  );
+  assert.equal(timezoneOverwritten, true);
+  assert.equal(normalized.timezone, 'Europe/Paris');
+  assert.equal(
+    utcInstantToWallClockDateTime(normalized.start, 'Europe/Paris'),
+    '2026-06-22T14:00:00'
+  );
+  // CEST (UTC+2): 14:00 Paris → 12:00 UTC
+  assert.equal(normalized.start.toISOString(), '2026-06-22T12:00:00.000Z');
+}
+
+/** Schedule ingest sanitize: strip Z/offset, keep wall-clock digits. */
+function testSanitizeScheduleWallClockStripsOffset() {
+  assert.equal(
+    sanitizeScheduleWallClock('2026-06-22T14:00:00Z', 'Europe/Paris'),
+    '2026-06-22T14:00:00'
+  );
+  assert.equal(
+    sanitizeScheduleWallClock('2026-06-22T14:00:00+02:00', 'Europe/Paris'),
+    '2026-06-22T14:00:00'
+  );
+  assert.equal(
+    sanitizeScheduleWallClock('2026-09-15T14:00:00', 'America/New_York'),
+    '2026-09-15T14:00:00'
+  );
+
+  const sanitized = sanitizeScheduleWallClock(
+    '2026-09-15T14:00:00Z',
+    DEFAULT_TIMED_ZONE
+  );
+  const normalized = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: sanitized,
+    end: '2026-09-15T15:00:00',
+    timezone: DEFAULT_TIMED_ZONE,
+  });
+  assert.equal(normalized.start.toISOString(), '2026-09-15T18:00:00.000Z');
+}
+
 function run() {
   testAllDayInvariant();
   testTimedEtEveningGooglePayload();
@@ -188,6 +258,9 @@ function run() {
   testStoredTemporalEqualsIdempotent();
   testCsvRoundTrip();
   testDstBoundary();
+  testScheduleMainCalendarNyWallClock();
+  testScheduleHubParisWallClock();
+  testSanitizeScheduleWallClockStripsOffset();
   console.log('All eventTemporal tests passed.');
 }
 

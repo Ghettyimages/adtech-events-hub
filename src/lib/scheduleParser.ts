@@ -96,7 +96,7 @@ function sanitizeJsonResponse(raw: string): string {
 
 function coerceSponsorKind(
   value: unknown
-): 'SPONSORED' | 'PARTNERSHIP' | null | undefined {
+): 'SPONSORED' | 'PARTNERSHIP' | null {
   if (value == null || value === '') return null;
   if (typeof value !== 'string') return null;
   const upper = value.trim().toUpperCase();

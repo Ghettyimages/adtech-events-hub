@@ -101,6 +101,7 @@ export default function AdminPage() {
   const [eventViewMode, setEventViewMode] = useState<
     'pending' | 'hub-pending' | 'published'
   >('pending');
+  const [uploadTab, setUploadTab] = useState<'scrape' | 'schedule' | 'csv'>('scrape');
   const [adminTab, setAdminTab] = useState<'events' | 'tags' | 'stats' | 'hubs'>('events');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [topEvents, setTopEvents] = useState<AdminTopEvent[]>([]);
@@ -720,6 +721,14 @@ export default function AdminPage() {
       await fetchHubPendingEvents();
       await fetchPublishedEvents();
 
+      if (!publishImmediately && result.stats.success > 0) {
+        setEventViewMode(csvHubSlug ? 'hub-pending' : 'pending');
+        setAdminTab('events');
+        requestAnimationFrame(() => {
+          document.getElementById('admin-events-section')?.scrollIntoView({ behavior: 'smooth' });
+        });
+      }
+
       // Clear file input
       event.target.value = '';
     } catch (err: any) {
@@ -789,9 +798,12 @@ export default function AdminPage() {
       await fetch('/api/revalidate', { method: 'POST' });
       await fetchPendingEvents();
       await fetchHubPendingEvents();
-      if (scrapedHubName && ingestedCount > 0) {
-        setEventViewMode('hub-pending');
+      if (ingestedCount > 0) {
+        setEventViewMode(scrapedHubName ? 'hub-pending' : 'pending');
         setAdminTab('events');
+        requestAnimationFrame(() => {
+          document.getElementById('admin-events-section')?.scrollIntoView({ behavior: 'smooth' });
+        });
       }
       if (adminTab === 'events') {
         await fetchPublishedEvents();
@@ -1388,8 +1400,69 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Event upload method tabs */}
+      <div className="mb-6 overflow-x-auto">
+        <div
+          role="tablist"
+          aria-label="Event upload methods"
+          className="inline-flex min-w-max rounded-lg border border-gray-200 bg-white p-1 text-sm font-medium shadow-sm dark:border-gray-700 dark:bg-gray-900"
+        >
+          <button
+            id="upload-tab-scrape"
+            type="button"
+            role="tab"
+            aria-selected={uploadTab === 'scrape'}
+            aria-controls="upload-panel-scrape"
+            onClick={() => setUploadTab('scrape')}
+            className={`rounded-md px-4 py-2 transition ${
+              uploadTab === 'scrape'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+            }`}
+          >
+            🔍 Scrape Events from URL
+          </button>
+          <button
+            id="upload-tab-schedule"
+            type="button"
+            role="tab"
+            aria-selected={uploadTab === 'schedule'}
+            aria-controls="upload-panel-schedule"
+            onClick={() => setUploadTab('schedule')}
+            className={`rounded-md px-4 py-2 transition ${
+              uploadTab === 'schedule'
+                ? 'bg-purple-600 text-white shadow'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+            }`}
+          >
+            🎪 Import Schedule
+          </button>
+          <button
+            id="upload-tab-csv"
+            type="button"
+            role="tab"
+            aria-selected={uploadTab === 'csv'}
+            aria-controls="upload-panel-csv"
+            onClick={() => setUploadTab('csv')}
+            className={`rounded-md px-4 py-2 transition ${
+              uploadTab === 'csv'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+            }`}
+          >
+            📤 Upload Events from CSV
+          </button>
+        </div>
+      </div>
+
       {/* URL Scraping Section */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md">
+      <div
+        id="upload-panel-scrape"
+        role="tabpanel"
+        aria-labelledby="upload-tab-scrape"
+        hidden={uploadTab !== 'scrape'}
+        className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md"
+      >
         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
           🔍 Scrape Events from URL
         </h2>
@@ -1460,7 +1533,13 @@ export default function AdminPage() {
       </div>
 
       {/* Import schedule (hub or main calendar paste) */}
-      <div className="bg-white dark:bg-gray-800 border border-purple-200 dark:border-purple-800 rounded-lg p-6 mb-8 shadow-md">
+      <div
+        id="upload-panel-schedule"
+        role="tabpanel"
+        aria-labelledby="upload-tab-schedule"
+        hidden={uploadTab !== 'schedule'}
+        className="bg-white dark:bg-gray-800 border border-purple-200 dark:border-purple-800 rounded-lg p-6 mb-8 shadow-md"
+      >
         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-1">
           🎪 Import schedule
         </h2>
@@ -1727,7 +1806,13 @@ export default function AdminPage() {
       </div>
 
       {/* CSV Upload Section */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md">
+      <div
+        id="upload-panel-csv"
+        role="tabpanel"
+        aria-labelledby="upload-tab-csv"
+        hidden={uploadTab !== 'csv'}
+        className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md"
+      >
         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
           📤 Upload Events from CSV
         </h2>
@@ -1886,7 +1971,7 @@ export default function AdminPage() {
       </div>
 
       {/* Extracted Events Preview Section */}
-      {extractedEvents.length > 0 && (
+      {uploadTab === 'scrape' && extractedEvents.length > 0 && (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
@@ -1993,7 +2078,7 @@ export default function AdminPage() {
       )}
 
       {/* Monitored URLs Section */}
-      {monitoredUrls.length > 0 && (
+      {uploadTab === 'scrape' && monitoredUrls.length > 0 && (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md">
           <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">📡 Monitored URLs</h2>
           <div className="space-y-4">
@@ -3227,4 +3312,3 @@ export default function AdminPage() {
     </div>
   );
 }
-

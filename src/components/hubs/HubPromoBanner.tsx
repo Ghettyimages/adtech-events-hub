@@ -27,7 +27,7 @@ export default async function HubPromoBanner() {
         href={`/hubs/${featured.slug}`}
         className="inline-flex items-center justify-center bg-white text-tmc-navy px-5 py-2.5 rounded-lg font-semibold hover:bg-slate-50 transition shrink-0 min-h-[44px]"
       >
-        Explore Cannes →
+        Explore {featured.name} →
       </Link>
     </div>
   );

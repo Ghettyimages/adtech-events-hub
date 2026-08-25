@@ -2,6 +2,8 @@
  * HTML rendering utilities using Playwright for JavaScript-heavy pages
  */
 
+import { assertSafePublicHttpUrl, safePublicFetch } from './safeRemoteUrl';
+
 interface RenderOptions {
   maxLoads?: number; // Maximum number of "load more" clicks
   waitMs?: number; // Wait time between actions
@@ -47,6 +49,7 @@ export async function getRenderedHTML(
   options: RenderOptions = {}
 ): Promise<RenderedHTML> {
   const { maxLoads = 3, waitMs = 1200, timeoutMs = 60000 } = options;
+  await assertSafePublicHttpUrl(url);
 
   // Try to use Playwright, fallback to fetch if not available
   try {
@@ -54,11 +57,11 @@ export async function getRenderedHTML(
     playwrightAvailable = true;
   } catch {
     // Fallback to simple fetch if Playwright not available
-    const response = await fetch(url, {
+    const response = await safePublicFetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
-    } as any);
+    });
     const html = await response.text();
     return {
       html,
@@ -71,6 +74,26 @@ export async function getRenderedHTML(
   try {
     const browser = await getBrowser();
     page = await browser.newPage();
+
+    const checkedHosts = new Map<string, boolean>();
+    await page.route('**/*', async (route: any) => {
+      const requestUrl = route.request().url();
+      if (requestUrl.startsWith('data:') || requestUrl.startsWith('blob:')) {
+        await route.continue();
+        return;
+      }
+      try {
+        const parsed = new URL(requestUrl);
+        const cacheKey = `${parsed.protocol}//${parsed.hostname}`;
+        if (!checkedHosts.has(cacheKey)) {
+          await assertSafePublicHttpUrl(requestUrl);
+          checkedHosts.set(cacheKey, true);
+        }
+        await route.continue();
+      } catch {
+        await route.abort('blockedbyclient');
+      }
+    });
 
     // Set a reasonable viewport
     await page.setViewportSize({ width: 1920, height: 1080 });
@@ -86,6 +109,7 @@ export async function getRenderedHTML(
     }
 
     const finalURL = page.url();
+    await assertSafePublicHttpUrl(finalURL);
 
     // Wait for initial content to load
     await page.waitForTimeout(waitMs);
@@ -159,4 +183,3 @@ export async function closeBrowser(): Promise<void> {
     }
   }
 }
-

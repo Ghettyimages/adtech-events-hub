@@ -8,11 +8,15 @@ import { scrapeUrlGeneric } from '@/lib/scraper';
 import { extractEventsFromUrl } from '@/lib/extractor/agent';
 import { normalize_events, ingestScrapedEvents } from '@/lib/tools';
 import { markdownToOverrideHtml, scrapeUrlWithFirecrawl } from '@/lib/firecrawl';
+import { requireAdmin } from '@/lib/auth-helpers';
+import { assertSafePublicHttpUrl } from '@/lib/safeRemoteUrl';
 
 type ExtractionMethod = 'agent' | 'generic' | 'firecrawl' | 'firecrawl-agent';
 
 // GET: List all monitored URLs
 export async function GET(request: NextRequest) {
+  const authResult = await requireAdmin();
+  if (!authResult.success) return authResult.response;
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
@@ -37,6 +41,8 @@ export async function GET(request: NextRequest) {
 
 // POST: Scrape a URL or add to monitored URLs
 export async function POST(request: NextRequest) {
+  const authResult = await requireAdmin();
+  if (!authResult.success) return authResult.response;
   try {
     const body = await request.json();
     const {
@@ -54,11 +60,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
 
-    // Validate URL
     try {
-      new URL(url);
-    } catch {
-      return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
+      await assertSafePublicHttpUrl(url);
+    } catch (urlError) {
+      return NextResponse.json(
+        { error: urlError instanceof Error ? urlError.message : 'Invalid URL' },
+        { status: 400 }
+      );
     }
     const domain = new URL(url).hostname.replace('www.', '');
     const sourceName = name || domain;
@@ -335,6 +343,8 @@ export async function POST(request: NextRequest) {
 
 // DELETE: Remove monitored URL
 export async function DELETE(request: NextRequest) {
+  const authResult = await requireAdmin();
+  if (!authResult.success) return authResult.response;
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -356,6 +366,8 @@ export async function DELETE(request: NextRequest) {
 
 // PATCH: Update monitored URL (enable/disable)
 export async function PATCH(request: NextRequest) {
+  const authResult = await requireAdmin();
+  if (!authResult.success) return authResult.response;
   try {
     const body = await request.json();
     const { id, enabled } = body;
@@ -375,4 +387,3 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to update' }, { status: 500 });
   }
 }
-

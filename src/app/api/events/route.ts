@@ -23,6 +23,9 @@ export async function GET(request: NextRequest) {
 
     const session = await auth();
     const isAdmin = (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin === true;
+    if (status && status !== 'PUBLISHED' && !isAdmin) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     const baseWhere: any =
       includeHubEvents && isAdmin

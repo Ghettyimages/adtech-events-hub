@@ -7,6 +7,7 @@ import {
   storedTemporalEquals,
   temporalFieldsForPrisma,
 } from '@/lib/eventTemporal';
+import { requireAdmin } from '@/lib/auth-helpers';
 
 export async function GET(
   request: NextRequest,
@@ -21,6 +22,10 @@ export async function GET(
     if (!event) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
+    if (event.status !== 'PUBLISHED') {
+      const authResult = await requireAdmin();
+      if (!authResult.success) return authResult.response;
+    }
 
     return NextResponse.json({ event });
   } catch (error: any) {
@@ -33,6 +38,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const authResult = await requireAdmin();
+  if (!authResult.success) return authResult.response;
   try {
     const { id } = await params;
     let body;
@@ -64,6 +71,17 @@ export async function PATCH(
         where: { id },
         data: { status: validatedData.status },
       });
+
+      if (event.status === 'PUBLISHED') {
+        await prisma.eventWatchCandidate.updateMany({
+          where: { pendingEventId: event.id, reviewStatus: 'PENDING' },
+          data: {
+            reviewStatus: 'APPROVED',
+            reviewedAt: new Date(),
+            reviewedBy: authResult.data.userId,
+          },
+        });
+      }
 
       // If event is PUBLISHED, mark all connected users as needing sync
       if (event.status === 'PUBLISHED') {
@@ -202,6 +220,17 @@ export async function PATCH(
       data: updateData,
     });
 
+    if (event.status === 'PUBLISHED') {
+      await prisma.eventWatchCandidate.updateMany({
+        where: { pendingEventId: event.id, reviewStatus: 'PENDING' },
+        data: {
+          reviewStatus: 'APPROVED',
+          reviewedAt: new Date(),
+          reviewedBy: authResult.data.userId,
+        },
+      });
+    }
+
     // If event is PUBLISHED (either newly published or updated while published),
     // mark all connected users as needing sync
     if (event.status === 'PUBLISHED') {
@@ -255,11 +284,21 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const authResult = await requireAdmin();
+  if (!authResult.success) return authResult.response;
   try {
     const { id } = await params;
-    await prisma.event.delete({
-      where: { id },
-    });
+    await prisma.$transaction([
+      prisma.eventWatchCandidate.updateMany({
+        where: { pendingEventId: id, reviewStatus: 'PENDING' },
+        data: {
+          reviewStatus: 'REJECTED',
+          reviewedAt: new Date(),
+          reviewedBy: authResult.data.userId,
+        },
+      }),
+      prisma.event.delete({ where: { id } }),
+    ]);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

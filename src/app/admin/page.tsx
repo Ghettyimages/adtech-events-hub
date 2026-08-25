@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 36787)
-Total output lines: 3328
-
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
@@ -1650,7 +1647,479 @@ export default function AdminPage() {
           </button>
           {scheduleWarnings.length > 0 && (
             <div className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
-              <p className="font-medium mb-1">Par…6787 tokens truncated…ition text-sm font-semibold"
+              <p className="font-medium mb-1">Parser notes</p>
+              <ul className="list-disc list-inside space-y-0.5">
+                {scheduleWarnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {!scheduleParsing && scheduleRawText.trim() && schedulePreview.length === 0 && scheduleWarnings.length > 0 && (
+            <p className="text-sm text-gray-600 dark:text-gray-400 italic">
+              No sessions in preview — adjust the paste or timezone and parse again.
+            </p>
+          )}
+          {schedulePreview.length > 0 && (
+            <div className="border border-purple-200 dark:border-purple-800 rounded-lg overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-purple-50 dark:bg-purple-900/30">
+                <span className="font-medium text-gray-900 dark:text-white">
+                  Preview ({schedulePreview.filter((r) => r.included).length} of {schedulePreview.length} selected)
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={applyBatchTimezoneToPreview}
+                    disabled={!scheduleDefaultTz.trim()}
+                    className="px-3 py-2 border border-purple-300 dark:border-purple-600 text-purple-800 dark:text-purple-200 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/50 text-sm font-medium disabled:opacity-50"
+                  >
+                    Apply batch timezone to selected
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleIngestSchedule}
+                    disabled={scheduleIngesting || schedulePreview.every((r) => !r.included)}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-semibold disabled:opacity-50"
+                  >
+                    {scheduleIngesting
+                      ? 'Importing…'
+                      : `Import ${schedulePreview.filter((r) => r.included).length} event(s)`}
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
+                    <tr>
+                      <th className="px-2 py-2 text-left w-8" />
+                      <th className="px-2 py-2 text-left">Title</th>
+                      <th className="px-2 py-2 text-left">Start</th>
+                      <th className="px-2 py-2 text-left">End</th>
+                      <th className="px-2 py-2 text-left">Timezone</th>
+                      <th className="px-2 py-2 text-left">Location</th>
+                      <th className="px-2 py-2 text-left">Sponsored by</th>
+                      <th className="px-2 py-2 text-left">Tags</th>
+                      <th className="px-2 py-2 text-left">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {schedulePreview.map((row, index) => (
+                      <tr
+                        key={index}
+                        className={row.included ? '' : 'opacity-50 bg-gray-50/50 dark:bg-gray-900/30'}
+                      >
+                        <td className="px-2 py-2 align-top">
+                          <input
+                            type="checkbox"
+                            checked={row.included}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, { included: e.target.checked })
+                            }
+                            className="h-4 w-4 rounded text-purple-600"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[10rem]">
+                          <input
+                            type="text"
+                            value={row.title}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, { title: e.target.value })
+                            }
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[11rem]">
+                          <input
+                            type="text"
+                            value={row.start}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, { start: e.target.value })
+                            }
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800 font-mono text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[11rem]">
+                          <input
+                            type="text"
+                            value={row.end}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, { end: e.target.value })
+                            }
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800 font-mono text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[10rem]">
+                          <input
+                            type="text"
+                            value={row.timezone ?? ''}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, {
+                                timezone: e.target.value || undefined,
+                              })
+                            }
+                            placeholder={scheduleDefaultTz}
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800 font-mono text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[8rem]">
+                          <input
+                            type="text"
+                            value={row.location ?? ''}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, {
+                                location: e.target.value || null,
+                              })
+                            }
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top min-w-[8rem]">
+                          <input
+                            type="text"
+                            value={row.sponsoredBy ?? ''}
+                            onChange={(e) =>
+                              updateSchedulePreviewRow(index, {
+                                sponsoredBy: e.target.value || null,
+                              })
+                            }
+                            placeholder="e.g. Google"
+                            className="w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 rounded dark:bg-gray-800"
+                          />
+                        </td>
+                        <td className="px-2 py-2 align-top text-xs text-gray-600 dark:text-gray-400">
+                          {(row.tags ?? []).join(', ') || '—'}
+                        </td>
+                        <td className="px-2 py-2 align-top max-w-[12rem] text-xs text-gray-600 dark:text-gray-400 truncate" title={row.description ?? ''}>
+                          {row.description
+                            ? row.description.length > 80
+                              ? `${row.description.slice(0, 80)}…`
+                              : row.description
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* CSV Upload Section */}
+      <div
+        id="upload-panel-csv"
+        role="tabpanel"
+        aria-labelledby="upload-tab-csv"
+        hidden={uploadTab !== 'csv'}
+        className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md"
+      >
+        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
+          📤 Upload Events from CSV
+        </h2>
+        
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            CSV File Format
+          </label>
+          <div className="text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-3 rounded border border-gray-200 dark:border-gray-600">
+            <p className="mb-2">
+              Required columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">title</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">start</code>
+            </p>
+            <p className="mb-2">
+              Optional event columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">location</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">description</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">sponsored_by</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">sponsor_kind</code> (<code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">SPONSORED</code> or <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">PARTNERSHIP</code>), <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">status</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">tags</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">country</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">region</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">city</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">all_day</code>
+            </p>
+            <p className="mb-2">
+              Festival hub columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_name</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_start</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_end</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_timezone</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_location</code>
+            </p>
+            <p className="mb-2">
+              Host columns: <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_name</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_url</code> (host website; event link goes in <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">url</code>). Use <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code> as the host display name when slug is omitted.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              If <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code> does not exist yet, include <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_name</code>, <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_start</code>, and <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_end</code> to create the hub. Existing hosts are matched by <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code> or <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code>; new hosts are created automatically. Or pick a default hub below for rows without their own <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code>.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              Date formats: YYYY-MM-DD, MM/DD/YYYY, or ISO format. Tags should be comma-separated.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">all_day</code> column: Use <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">true</code> or <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">false</code> to explicitly control all-day status. If omitted, auto-detects from date format (no time = all-day).
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={publishImmediately}
+              onChange={(e) => setPublishImmediately(e.target.checked)}
+              className="rounded border-gray-300 dark:border-gray-600"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              Publish events immediately (otherwise they'll be PENDING)
+            </span>
+          </label>
+        </div>
+
+        <div className="mb-4">
+          <label htmlFor="csv-hub" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Default Festival Hub (optional)
+          </label>
+          <select
+            id="csv-hub"
+            value={csvHubSlug}
+            onChange={(e) => setCsvHubSlug(e.target.value)}
+            className="w-full md:w-auto px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+          >
+            <option value="">— None (regular calendar) —</option>
+            {hubsList.map((hub) => (
+              <option key={hub.id} value={hub.slug}>
+                {hub.name}
+              </option>
+            ))}
+          </select>
+          {csvHubSlug && (
+            <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
+              Rows without their own <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">hub_slug</code> will be added to this hub (hidden from the main calendar). Use a <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">host_slug</code> or <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">source</code> column to set each host.
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center space-x-4 mb-4">
+          <label className="flex-1">
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCsvUpload}
+              disabled={csvUploading}
+              className="block w-full text-sm text-gray-500 dark:text-gray-400
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900 dark:file:text-blue-200
+                hover:file:bg-blue-100 dark:hover:file:bg-blue-800
+                disabled:opacity-50 disabled:cursor-not-allowed
+                cursor-pointer"
+            />
+          </label>
+          <a
+            href="/api/events/csv-template"
+            download
+            className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
+          >
+            Download template
+          </a>
+          <a
+            href="/api/events/export-csv"
+            download
+            className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition"
+          >
+            📥 Download CSV Template
+          </a>
+        </div>
+
+        {csvUploading && (
+          <div className="mt-4 text-sm text-blue-600 dark:text-blue-400">
+            ⏳ Uploading and processing CSV...
+          </div>
+        )}
+
+        {csvUploadResult && (
+          <div className={`mt-4 p-4 rounded border ${
+            csvUploadResult.stats.errors > 0 
+              ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800' 
+              : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+          }`}>
+            <div className="text-sm">
+              <p className="font-semibold mb-2 text-gray-900 dark:text-white">
+                {csvUploadResult.stats.errors === 0 ? '✅' : '⚠️'} Upload Complete
+              </p>
+              <p className="text-gray-700 dark:text-gray-300">Total rows: {csvUploadResult.stats.total}</p>
+              <p className="text-green-700 dark:text-green-400">Success: {csvUploadResult.stats.success}</p>
+              {csvUploadResult.stats.hubsCreated > 0 && (
+                <p className="text-green-700 dark:text-green-400">
+                  Hubs created: {csvUploadResult.stats.hubsCreated}
+                </p>
+              )}
+              {csvUploadResult.stats.hostsCreated > 0 && (
+                <p className="text-green-700 dark:text-green-400">
+                  Hosts created: {csvUploadResult.stats.hostsCreated}
+                </p>
+              )}
+              {csvUploadResult.stats.errors > 0 && (
+                <p className="text-yellow-700 dark:text-yellow-400">Errors: {csvUploadResult.stats.errors}</p>
+              )}
+            </div>
+            
+            {csvUploadResult.errors && csvUploadResult.errors.length > 0 && (
+              <details className="mt-2">
+                <summary className="text-sm font-medium cursor-pointer text-gray-700 dark:text-gray-300">
+                  View errors ({csvUploadResult.errors.length})
+                </summary>
+                <ul className="mt-2 text-xs text-gray-600 dark:text-gray-400 list-disc list-inside space-y-1 max-h-40 overflow-y-auto">
+                  {csvUploadResult.errors.map((err: string, idx: number) => (
+                    <li key={idx}>{err}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+          <p>💡 Tip: Download a sample CSV from your existing events to see the format.</p>
+        </div>
+      </div>
+
+      {/* Extracted Events Preview Section */}
+      {uploadTab === 'scrape' && extractedEvents.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
+              📋 Extracted Events Preview ({extractedEvents.length})
+            </h2>
+            {extractionMethod && (
+              <span className="text-sm px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
+                Method: {getExtractionMethodLabel(extractionMethod)}
+              </span>
+            )}
+          </div>
+          <div className="space-y-4">
+            {extractedEvents.map((event, index) => (
+              <div
+                key={index}
+                className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                      {event.title}
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      {event.start && (
+                        <div>
+                          <strong>Start:</strong>{' '}
+                          {formatEventDate(event.start, event, false)}
+                          {event.date_status && (
+                            <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
+                              event.date_status === 'confirmed'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                            }`}>
+                              {event.date_status}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {event.end && (
+                        <div>
+                          <strong>End:</strong> {formatEventDate(event.end, event, true)}
+                        </div>
+                      )}
+                      {event.location && (
+                        <div>
+                          <strong>Location:</strong> {event.location}
+                          {event.location_status && (
+                            <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
+                              event.location_status === 'confirmed'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                            }`}>
+                              {event.location_status}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {event.source && (
+                        <div>
+                          <strong>Source:</strong> {event.source}
+                        </div>
+                      )}
+                      {event.url && (
+                        <div className="md:col-span-2">
+                          <strong>Link:</strong>{' '}
+                          <a
+                            href={event.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline break-all"
+                          >
+                            {event.url}
+                          </a>
+                        </div>
+                      )}
+                      {event.evidence && (
+                        <div className="md:col-span-2 text-xs text-gray-500 dark:text-gray-500">
+                          <strong>Date Evidence:</strong> {event.evidence}
+                        </div>
+                      )}
+                      {event.location_evidence && (
+                        <div className="md:col-span-2 text-xs text-gray-500 dark:text-gray-500">
+                          <strong>Location Evidence:</strong> {event.location_evidence}
+                        </div>
+                      )}
+                    </div>
+                    {event.description && (
+                      <div className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                        <strong>Description:</strong>
+                        <p className="mt-1 whitespace-pre-wrap">{event.description}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              ℹ️ These events have been automatically saved as pending and are available for approval below.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Monitored URLs Section */}
+      {uploadTab === 'scrape' && monitoredUrls.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 mb-8 shadow-md">
+          <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">📡 Monitored URLs</h2>
+          <div className="space-y-4">
+            {monitoredUrls.map((url) => (
+              <div
+                key={url.id}
+                className="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                      {url.name || url.url}
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 break-all">{url.url}</p>
+                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-500 space-y-1">
+                      {url.lastChecked && (
+                        <p>Last checked: {format(new Date(url.lastChecked), 'PPpp')}</p>
+                      )}
+                      {url.lastSuccess && (
+                        <p className="text-green-600">Last success: {format(new Date(url.lastSuccess), 'PPpp')}</p>
+                      )}
+                      {url.lastError && (
+                        <p className="text-red-600">Last error: {url.lastError}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 ml-4">
+                    <button
+                      onClick={() => handleToggleMonitoring(url.id, url.enabled)}
+                      className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                        url.enabled
+                          ? 'bg-green-600 text-white hover:bg-green-700'
+                          : 'bg-gray-300 text-gray-700 hover:bg-gray-400 dark:bg-gray-600 dark:text-white'
+                      }`}
+                    >
+                      {url.enabled ? '✓ Enabled' : 'Disabled'}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteMonitoredUrl(url.id)}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-semibold"
                     >
                       Delete
                     </button>

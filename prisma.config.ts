@@ -14,10 +14,10 @@ if (existsSync(resolve(process.cwd(), '.env.local'))) {
 }
 
 import { defineConfig } from 'prisma/config';
+import { resolveDatabaseUrl } from './src/lib/database-url';
 
 export default defineConfig({
   datasource: {
-    url: process.env.DATABASE_URL || 'postgresql://placeholder',
+    url: resolveDatabaseUrl(),
   },
 });
-

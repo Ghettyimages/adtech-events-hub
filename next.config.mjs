@@ -45,7 +45,13 @@ const nextConfig = {
     },
   },
   // Mark pg and related packages as external server-only packages (moved from experimental in Next.js 16)
-  serverExternalPackages: ['pg', 'pg-native', '@prisma/adapter-pg'],
+  serverExternalPackages: [
+    'pg',
+    'pg-native',
+    '@prisma/adapter-pg',
+    '@sparticuz/chromium',
+    'playwright-core',
+  ],
   // Add empty turbopack config to silence warning when webpack config exists
   turbopack: {},
   webpack: (config, { isServer }) => {

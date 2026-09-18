@@ -2,7 +2,9 @@
  * HTML rendering utilities using Playwright for JavaScript-heavy pages
  */
 
-import { assertSafePublicHttpUrl, safePublicFetch } from './safeRemoteUrl';
+import { assertSafePublicHttpUrl } from './safeRemoteUrl';
+import chromium from '@sparticuz/chromium';
+import { chromium as playwrightChromium } from 'playwright-core';
 
 interface RenderOptions {
   maxLoads?: number; // Maximum number of "load more" clicks
@@ -18,24 +20,14 @@ interface RenderedHTML {
 let browserInstance: any = null;
 let playwrightAvailable = false;
 
-// Lazy load Playwright to avoid issues if not installed
-async function getPlaywright() {
-  try {
-    const playwright = await import('playwright');
-    playwrightAvailable = true;
-    return playwright;
-  } catch (error) {
-    playwrightAvailable = false;
-    throw new Error('Playwright is not available. Install it with: npm install playwright && npx playwright install chromium');
-  }
-}
-
 async function getBrowser(): Promise<any> {
   if (!browserInstance) {
-    const playwright = await getPlaywright();
-    browserInstance = await playwright.chromium.launch({
+    browserInstance = await playwrightChromium.launch({
+      args: chromium.args,
+      executablePath: await chromium.executablePath(),
       headless: true,
     });
+    playwrightAvailable = true;
   }
   return browserInstance;
 }
@@ -50,24 +42,6 @@ export async function getRenderedHTML(
 ): Promise<RenderedHTML> {
   const { maxLoads = 3, waitMs = 1200, timeoutMs = 60000 } = options;
   await assertSafePublicHttpUrl(url);
-
-  // Try to use Playwright, fallback to fetch if not available
-  try {
-    const playwright = await getPlaywright();
-    playwrightAvailable = true;
-  } catch {
-    // Fallback to simple fetch if Playwright not available
-    const response = await safePublicFetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
-    const html = await response.text();
-    return {
-      html,
-      finalURL: response.url || url,
-    };
-  }
 
   let page: any = null;
 

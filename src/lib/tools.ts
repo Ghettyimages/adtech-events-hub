@@ -17,6 +17,7 @@ import {
   normalizeEventForHubIngest,
   normalizeEventForWrite,
   temporalFieldsForPrisma,
+  toExtractedTemporalTransport,
 } from './eventTemporal';
 
 function hasTimeInString(s: string): boolean {
@@ -145,12 +146,14 @@ export async function normalize_events(
       region = event.region || region;
       country = event.country || country;
 
+      const transportedTemporal = toExtractedTemporalTransport(temporal);
+
       const normalizedEvent: ExtractedEvent = {
         ...event,
         title: event.title.trim(),
-        start: temporal.start.toISOString(),
-        end: temporal.end.toISOString(),
-        timezone: temporal.timezone ?? undefined,
+        start: transportedTemporal.start,
+        end: transportedTemporal.end,
+        timezone: transportedTemporal.timezone,
         location: event.location?.trim() || undefined,
         url: event.url?.trim() || undefined,
         description: event.description?.trim() || undefined,
@@ -483,4 +486,3 @@ export async function upsert_events(
 
   return { created, updated, skipped, errors };
 }
-

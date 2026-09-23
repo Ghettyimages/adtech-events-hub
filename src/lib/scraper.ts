@@ -2,11 +2,11 @@
  * Generic URL scraper - fallback when AI agent extraction fails
  */
 
-import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
 import { ExtractedEvent } from './extractor/schema';
 import { extractFromHtml } from './extractor/extractFromHtml';
 import { parse } from 'date-fns';
+import { assertSafePublicHttpUrl, safePublicFetch } from './safeRemoteUrl';
 
 /**
  * Generic scraper that extracts events from HTML without AI
@@ -18,12 +18,12 @@ export async function scrapeUrlGeneric(
 ): Promise<ExtractedEvent[]> {
   try {
     // Fetch the page
-    const response = await fetch(url, {
+    const response = await safePublicFetch(url, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
       },
-    } as any);
+    });
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -31,6 +31,7 @@ export async function scrapeUrlGeneric(
 
     const html = await response.text();
     const finalUrl = response.url || url;
+    await assertSafePublicHttpUrl(finalUrl);
 
     // Use extractFromHtml to get rough structures
     const roughRows = extractFromHtml(html, finalUrl);
@@ -115,4 +116,3 @@ export async function scrapeUrlGeneric(
     return [];
   }
 }
-

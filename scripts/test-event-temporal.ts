@@ -15,6 +15,7 @@ import {
   repairHubTimedTemporal,
   storedTemporalEquals,
   toCsvRow,
+  toExtractedTemporalTransport,
   toGoogleCalendarPayload,
   utcInstantToWallClockDateTime,
   violatesAllDayStorageContract,
@@ -163,6 +164,46 @@ function testCsvRoundTrip() {
   assert.equal(again.end.toISOString(), normalized.end.toISOString());
 }
 
+function testAllDayExtractionTransportRoundTrip() {
+  const normalized = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.ALL_DAY,
+    start: '2027-01-03',
+    end: '2027-01-05',
+    timezone: null,
+  });
+
+  const transport = toExtractedTemporalTransport(normalized);
+  assert.deepEqual(transport, {
+    start: '2027-01-03',
+    end: '2027-01-05',
+  });
+
+  const ingestedAgain = normalizeEventForWrite(fromCsvRow(transport));
+  assert.equal(ingestedAgain.temporalKind, TEMPORAL_KIND.ALL_DAY);
+  assert.equal(ingestedAgain.timezone, null);
+  assert.equal(ingestedAgain.allDayStartDate?.toISOString(), '2027-01-03T00:00:00.000Z');
+  assert.equal(ingestedAgain.allDayEndDate?.toISOString(), '2027-01-05T00:00:00.000Z');
+}
+
+function testTimedExtractionTransportPreservesRealTimes() {
+  const normalized = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: '2027-01-03T19:00',
+    end: '2027-01-03T21:00',
+    timezone: 'America/New_York',
+  });
+
+  const transport = toExtractedTemporalTransport(normalized);
+  assert.equal(transport.start, '2027-01-04T00:00:00.000Z');
+  assert.equal(transport.end, '2027-01-04T02:00:00.000Z');
+  assert.equal(transport.timezone, 'America/New_York');
+
+  const ingestedAgain = normalizeEventForWrite(fromCsvRow(transport));
+  assert.equal(ingestedAgain.temporalKind, TEMPORAL_KIND.TIMED);
+  assert.equal(ingestedAgain.start.toISOString(), transport.start);
+  assert.equal(ingestedAgain.end.toISOString(), transport.end);
+}
+
 function testDstBoundary() {
   const normalized = normalizeEventForWrite({
     temporalKind: TEMPORAL_KIND.TIMED,
@@ -257,6 +298,8 @@ function run() {
   testRepairHubTimedFromWrongZone();
   testStoredTemporalEqualsIdempotent();
   testCsvRoundTrip();
+  testAllDayExtractionTransportRoundTrip();
+  testTimedExtractionTransportPreservesRealTimes();
   testDstBoundary();
   testScheduleMainCalendarNyWallClock();
   testScheduleHubParisWallClock();

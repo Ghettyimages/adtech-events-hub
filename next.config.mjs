@@ -45,7 +45,18 @@ const nextConfig = {
     },
   },
   // Mark pg and related packages as external server-only packages (moved from experimental in Next.js 16)
-  serverExternalPackages: ['pg', 'pg-native', '@prisma/adapter-pg'],
+  serverExternalPackages: [
+    'pg',
+    'pg-native',
+    '@prisma/adapter-pg',
+    '@sparticuz/chromium',
+    'playwright-core',
+  ],
+  // Chromium's compressed binaries are runtime assets rather than imported JS.
+  // Explicitly trace them into every server function that may run Event Watch.
+  outputFileTracingIncludes: {
+    '/*': ['./node_modules/@sparticuz/chromium/bin/**'],
+  },
   // Add empty turbopack config to silence warning when webpack config exists
   turbopack: {},
   webpack: (config, { isServer }) => {

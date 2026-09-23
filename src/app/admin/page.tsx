@@ -14,6 +14,7 @@ import HubAssignFields, {
 } from '@/components/admin/HubAssignFields';
 import ScheduleTimezoneSelect from '@/components/admin/ScheduleTimezoneSelect';
 import AdminPendingEventList from '@/components/admin/AdminPendingEventList';
+import AdminEventWatchPanel from '@/components/admin/AdminEventWatchPanel';
 import { getDisplayName } from '@/lib/tags';
 import { formatEventDateForDisplay, isEventPast } from '@/lib/events';
 import {
@@ -102,7 +103,7 @@ export default function AdminPage() {
     'pending' | 'hub-pending' | 'published'
   >('pending');
   const [uploadTab, setUploadTab] = useState<'scrape' | 'schedule' | 'csv'>('scrape');
-  const [adminTab, setAdminTab] = useState<'events' | 'tags' | 'stats' | 'hubs'>('events');
+  const [adminTab, setAdminTab] = useState<'events' | 'event-watch' | 'tags' | 'stats' | 'hubs'>('events');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [topEvents, setTopEvents] = useState<AdminTopEvent[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -2144,6 +2145,16 @@ export default function AdminPage() {
             📅 Events
           </button>
           <button
+            onClick={() => setAdminTab('event-watch')}
+            className={`rounded-md px-4 py-2 transition ${
+              adminTab === 'event-watch'
+                ? 'bg-blue-600 text-white shadow'
+                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+            }`}
+          >
+            🔭 Event Watch
+          </button>
+          <button
             onClick={() => setAdminTab('tags')}
             className={`rounded-md px-4 py-2 transition ${
               adminTab === 'tags'
@@ -2175,6 +2186,9 @@ export default function AdminPage() {
           </button>
         </div>
       </div>
+
+      {/* Event Watch Tab Content */}
+      {adminTab === 'event-watch' && <AdminEventWatchPanel />}
 
       {/* Festival Hubs Tab Content */}
       {adminTab === 'hubs' && (

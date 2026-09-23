@@ -5,7 +5,6 @@
 
 import { llmText } from '../llm';
 import { ExtractedEvent } from './schema';
-import fetch from 'node-fetch';
 import { parse, isValid } from 'date-fns';
 import * as cheerio from 'cheerio';
 import { extractFromHtml } from './extractFromHtml';
@@ -13,6 +12,7 @@ import { extractStrictDates } from './dateExtractor';
 import { extractStrictLocation } from './locationExtractor';
 import { getRenderedHTML } from '../render';
 import { dedupeBasisString } from '../dedupe';
+import { assertSafePublicHttpUrl, safePublicFetch } from '../safeRemoteUrl';
 
 const MAX_HTML_LENGTH = 150000; // Truncate HTML while keeping majority of page content
 
@@ -1523,6 +1523,7 @@ export async function extractEventsFromUrl(
   overrideHtml?: string
 ): Promise<{ events: ExtractedEvent[] }> {
   try {
+    await assertSafePublicHttpUrl(url);
     let finalUrl = url;
     let html = overrideHtml;
 
@@ -1536,22 +1537,24 @@ export async function extractEventsFromUrl(
           timeoutMs: 60000,
         });
         finalUrl = rendered.finalURL;
+        await assertSafePublicHttpUrl(finalUrl);
         html = rendered.html;
         console.log(`[extractor] Browser automation successful, got ${html.length} bytes of HTML`);
       } catch (browserError: any) {
         // Fallback to simple fetch if browser automation fails
         console.warn(`[extractor] Browser automation failed, falling back to fetch: ${browserError.message}`);
-        const response = await fetch(url, {
+        const response = await safePublicFetch(url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           },
-        } as any);
+        });
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         finalUrl = response.url || url;
+        await assertSafePublicHttpUrl(finalUrl);
         html = await (response as any).text();
       }
     }
@@ -1592,4 +1595,3 @@ ${JSON.stringify(roughRows.slice(0, 25), null, 2)}`
     throw new Error(`Failed to extract events from ${url}: ${error.message}`);
   }
 }
-

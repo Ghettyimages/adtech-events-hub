@@ -47,6 +47,12 @@ export type NormalizedEventTemporal = {
   allDayEndDate: Date | null;
 };
 
+export type ExtractedTemporalTransport = {
+  start: string;
+  end: string;
+  timezone?: string;
+};
+
 export type GoogleCalendarPayload = {
   start: { date?: string; dateTime?: string; timeZone?: string };
   end: { date?: string; dateTime?: string; timeZone?: string };
@@ -325,6 +331,31 @@ export function normalizeEventForWrite(input: EventTemporalInput): NormalizedEve
     timezone: zone,
     allDayStartDate: null,
     allDayEndDate: null,
+  };
+}
+
+/**
+ * Serialize normalized temporal data for another ingest pass without losing
+ * whether the event is all-day. All-day values must remain civil dates;
+ * emitting the storage sentinels (12:00Z / 22:00Z) would make the next pass
+ * incorrectly classify them as genuine timed events.
+ */
+export function toExtractedTemporalTransport(
+  normalized: NormalizedEventTemporal
+): ExtractedTemporalTransport {
+  if (normalized.temporalKind === TEMPORAL_KIND.ALL_DAY) {
+    const startDate = normalized.allDayStartDate ?? normalized.start;
+    const endDate = normalized.allDayEndDate ?? normalized.end;
+    return {
+      start: formatYmdUtc(startDate),
+      end: formatYmdUtc(endDate),
+    };
+  }
+
+  return {
+    start: normalized.start.toISOString(),
+    end: normalized.end.toISOString(),
+    timezone: normalized.timezone || DEFAULT_TIMED_ZONE,
   };
 }
 

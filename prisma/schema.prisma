@@ -61,6 +61,8 @@ model Event {
   itineraryItems ItineraryItem[]
   itineraryExclusions ItineraryExclusion[]
   submitter   User?    @relation("SubmittedEvents", fields: [submittedBy], references: [id])
+  eventWatchCandidates EventWatchCandidate[] @relation("EventWatchPendingEvent")
+  eventWatchMatches    EventWatchCandidate[] @relation("EventWatchMatchedEvent")
 
   @@index([duplicateReviewStatus])
   @@index([temporalKind])
@@ -183,8 +185,74 @@ model MonitoredUrl {
   lastSuccess   DateTime?
   lastError     String?
   checkInterval Int      @default(86400000) // 24 hours in milliseconds
+  sourceType    String   @default("EVENT_CALENDAR")
+  authority     String   @default("OFFICIAL")
+  adapterType   String   @default("GENERIC")
+  region        String?
+  topics        String?  // JSON string array
+  nextCheckAt   DateTime?
+  monitoringEndsAt DateTime?
+  failureCount  Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  scans      EventWatchScan[]
+  candidates EventWatchCandidate[]
+
+  @@index([enabled, nextCheckAt])
+  @@index([enabled, monitoringEndsAt])
+}
+
+model EventWatchScan {
+  id                 String   @id @default(cuid())
+  monitoredUrlId     String
+  status             String   @default("RUNNING") // RUNNING | SUCCESS | FAILED
+  extractionMethod   String?
+  startedAt          DateTime @default(now())
+  finishedAt         DateTime?
+  eventsFound        Int      @default(0)
+  newEvents          Int      @default(0)
+  matchedEvents      Int      @default(0)
+  skippedEvents      Int      @default(0)
+  error              String?  @db.Text
+  extractedPayload   Json?
+
+  monitoredUrl MonitoredUrl         @relation(fields: [monitoredUrlId], references: [id], onDelete: Cascade)
+  candidates  EventWatchCandidate[]
+
+  @@index([monitoredUrlId, startedAt])
+  @@index([status, startedAt])
+}
+
+model EventWatchCandidate {
+  id                 String   @id @default(cuid())
+  monitoredUrlId     String
+  latestScanId       String
+  pendingEventId     String?
+  matchedEventId     String?
+  candidateKey       String
+  matchStatus        String   // NEW_EVENT | MATCHED_EVENT
+  matchReason        String?
+  reviewStatus       String   @default("PENDING") // PENDING | APPROVED | REJECTED | OBSERVED
+  candidatePayload   Json
+  sourceUrl          String
+  evidence           String?  @db.Text
+  confidence         Float?
+  firstSeenAt        DateTime @default(now())
+  lastSeenAt         DateTime @default(now())
+  lastVerifiedAt     DateTime @default(now())
+  reviewedAt         DateTime?
+  reviewedBy         String?
+
+  monitoredUrl MonitoredUrl  @relation(fields: [monitoredUrlId], references: [id], onDelete: Cascade)
+  latestScan   EventWatchScan @relation(fields: [latestScanId], references: [id], onDelete: Cascade)
+  pendingEvent Event?         @relation("EventWatchPendingEvent", fields: [pendingEventId], references: [id], onDelete: SetNull)
+  matchedEvent Event?         @relation("EventWatchMatchedEvent", fields: [matchedEventId], references: [id], onDelete: SetNull)
+
+  @@unique([monitoredUrlId, candidateKey])
+  @@index([reviewStatus, lastSeenAt])
+  @@index([pendingEventId])
+  @@index([matchedEventId])
 }
 
 model User {

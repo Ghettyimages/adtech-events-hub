@@ -96,6 +96,7 @@ export default function AdminEventWatchPanel() {
   const [topics, setTopics] = useState('');
   const [intervalHours, setIntervalHours] = useState(24);
   const [monitoringEndDate, setMonitoringEndDate] = useState('');
+  const [monitoringEndDrafts, setMonitoringEndDrafts] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -112,7 +113,13 @@ export default function AdminEventWatchPanel() {
         sourcesResponse.json(),
         candidatesResponse.json(),
       ]);
-      setSources(sourcesData.sources || []);
+      const refreshedSources: Source[] = sourcesData.sources || [];
+      setSources(refreshedSources);
+      setMonitoringEndDrafts(
+        Object.fromEntries(
+          refreshedSources.map((source) => [source.id, dateInputValue(source.monitoringEndsAt)])
+        )
+      );
       setCandidates(candidatesData.candidates || []);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Unable to load Event Watch');
@@ -386,19 +393,40 @@ export default function AdminEventWatchPanel() {
                           <span>Every {Math.round(source.checkInterval / 3_600_000)} hours</span>
                           <span>Stops: {formatDateOnly(source.monitoringEndsAt)}</span>
                         </div>
-                        <label className="mt-3 block max-w-xs text-xs font-medium text-gray-600 dark:text-gray-300">
+                        <label className="mt-3 block text-xs font-medium text-gray-600 dark:text-gray-300">
                           Stop checking after
-                          <input
-                            type="date"
-                            defaultValue={dateInputValue(source.monitoringEndsAt)}
-                            disabled={busyId === source.id}
-                            onChange={(event) =>
-                              void updateSource(source, {
-                                monitoringEndsAt: localEndOfDayIso(event.target.value),
-                              })
-                            }
-                            className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
-                          />
+                          <span className="mt-1 flex max-w-md flex-col gap-2 sm:flex-row">
+                            <input
+                              type="date"
+                              value={monitoringEndDrafts[source.id] ?? ''}
+                              disabled={busyId === source.id}
+                              onChange={(event) =>
+                                setMonitoringEndDrafts((current) => ({
+                                  ...current,
+                                  [source.id]: event.target.value,
+                                }))
+                              }
+                              className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
+                            />
+                            <button
+                              type="button"
+                              disabled={
+                                busyId === source.id ||
+                                (monitoringEndDrafts[source.id] ?? '') ===
+                                  dateInputValue(source.monitoringEndsAt)
+                              }
+                              onClick={() =>
+                                void updateSource(source, {
+                                  monitoringEndsAt: localEndOfDayIso(
+                                    monitoringEndDrafts[source.id] ?? ''
+                                  ),
+                                })
+                              }
+                              className="rounded-lg border border-blue-600 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400 disabled:hover:bg-transparent dark:hover:bg-blue-950/30"
+                            >
+                              {busyId === source.id ? 'Updating…' : 'Update stop date'}
+                            </button>
+                          </span>
                         </label>
                         {source.lastError && (
                           <p className="mt-2 text-sm text-red-600">
@@ -468,19 +496,40 @@ export default function AdminEventWatchPanel() {
                                 {source._count.scans} scans · {source._count.candidates}{' '}
                                 observations · Stops: {formatDateOnly(source.monitoringEndsAt)}
                               </p>
-                              <label className="mt-3 block max-w-xs text-xs font-medium text-gray-600 dark:text-gray-300">
+                              <label className="mt-3 block text-xs font-medium text-gray-600 dark:text-gray-300">
                                 Stop checking after
-                                <input
-                                  type="date"
-                                  defaultValue={dateInputValue(source.monitoringEndsAt)}
-                                  disabled={busyId === source.id}
-                                  onChange={(event) =>
-                                    void updateSource(source, {
-                                      monitoringEndsAt: localEndOfDayIso(event.target.value),
-                                    })
-                                  }
-                                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
-                                />
+                                <span className="mt-1 flex max-w-md flex-col gap-2 sm:flex-row">
+                                  <input
+                                    type="date"
+                                    value={monitoringEndDrafts[source.id] ?? ''}
+                                    disabled={busyId === source.id}
+                                    onChange={(event) =>
+                                      setMonitoringEndDrafts((current) => ({
+                                        ...current,
+                                        [source.id]: event.target.value,
+                                      }))
+                                    }
+                                    className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      busyId === source.id ||
+                                      (monitoringEndDrafts[source.id] ?? '') ===
+                                        dateInputValue(source.monitoringEndsAt)
+                                    }
+                                    onClick={() =>
+                                      void updateSource(source, {
+                                        monitoringEndsAt: localEndOfDayIso(
+                                          monitoringEndDrafts[source.id] ?? ''
+                                        ),
+                                      })
+                                    }
+                                    className="rounded-lg border border-blue-600 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400 disabled:hover:bg-transparent dark:hover:bg-blue-950/30"
+                                  >
+                                    {busyId === source.id ? 'Updating…' : 'Update stop date'}
+                                  </button>
+                                </span>
                               </label>
                             </div>
                             <div className="flex shrink-0 gap-2">

@@ -10,6 +10,11 @@ import { fingerprintFromNormalizedEvent, findCandidateMatch } from '@/lib/dedupe
 import { normalize_events, ingestScrapedEvents } from '@/lib/tools';
 import { assertSafePublicHttpUrl } from '@/lib/safeRemoteUrl';
 import { processAllFilterSubscriptionsForEvent } from '@/lib/filters-server';
+import {
+  fromCsvRow,
+  normalizeEventForWrite,
+  temporalFieldsForPrisma,
+} from '@/lib/eventTemporal';
 
 export const EVENT_WATCH_DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const MAX_FAILURE_BACKOFF_MS = 7 * EVENT_WATCH_DEFAULT_INTERVAL_MS;
@@ -147,16 +152,32 @@ export async function runEventWatchSource(sourceId: string) {
         where: { monitoredUrlId_candidateKey: { monitoredUrlId: source.id, candidateKey } },
       });
       if (existingObservation) {
-        await prisma.eventWatchCandidate.update({
-          where: { id: existingObservation.id },
-          data: {
-            latestScanId: scan.id,
-            lastSeenAt: now,
-            lastVerifiedAt: now,
-            candidatePayload: asJson(event),
-            evidence: sourceEvidence(event),
-            confidence: evidenceConfidence(event),
-          },
+        await prisma.$transaction(async (tx) => {
+          await tx.eventWatchCandidate.update({
+            where: { id: existingObservation.id },
+            data: {
+              latestScanId: scan.id,
+              lastSeenAt: now,
+              lastVerifiedAt: now,
+              candidatePayload: asJson(event),
+              evidence: sourceEvidence(event),
+              confidence: evidenceConfidence(event),
+            },
+          });
+
+          if (existingObservation.pendingEventId && event.start && event.end) {
+            const temporal = normalizeEventForWrite(
+              fromCsvRow({
+                start: event.start,
+                end: event.end,
+                timezone: event.timezone,
+              })
+            );
+            await tx.event.updateMany({
+              where: { id: existingObservation.pendingEventId, status: 'PENDING' },
+              data: temporalFieldsForPrisma(temporal),
+            });
+          }
         });
         skippedEvents++;
         continue;

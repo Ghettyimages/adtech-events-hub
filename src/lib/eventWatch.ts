@@ -205,7 +205,11 @@ export async function runEventWatchSource(sourceId: string) {
     }
 
     const finishedAt = new Date();
-    const nextCheckAt = new Date(finishedAt.getTime() + source.checkInterval);
+    const scheduledNextCheck = new Date(finishedAt.getTime() + source.checkInterval);
+    const nextCheckAt =
+      source.monitoringEndsAt && scheduledNextCheck > source.monitoringEndsAt
+        ? null
+        : scheduledNextCheck;
     await prisma.$transaction([
       prisma.eventWatchScan.update({
         where: { id: scan.id },
@@ -257,7 +261,11 @@ export async function runEventWatchSource(sourceId: string) {
           lastChecked: finishedAt,
           lastError: message,
           failureCount,
-          nextCheckAt: new Date(finishedAt.getTime() + backoff),
+          nextCheckAt:
+            source.monitoringEndsAt &&
+            new Date(finishedAt.getTime() + backoff) > source.monitoringEndsAt
+              ? null
+              : new Date(finishedAt.getTime() + backoff),
         },
       }),
     ]);
@@ -270,7 +278,10 @@ export async function runDueEventWatchSources(limit = 10) {
   const sources = await prisma.monitoredUrl.findMany({
     where: {
       enabled: true,
-      OR: [{ nextCheckAt: null }, { nextCheckAt: { lte: now } }],
+      AND: [
+        { OR: [{ nextCheckAt: null }, { nextCheckAt: { lte: now } }] },
+        { OR: [{ monitoringEndsAt: null }, { monitoringEndsAt: { gte: now } }] },
+      ],
     },
     orderBy: [{ nextCheckAt: 'asc' }, { createdAt: 'asc' }],
     take: Math.max(1, Math.min(limit, 25)),

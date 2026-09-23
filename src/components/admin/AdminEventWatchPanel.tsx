@@ -26,6 +26,7 @@ type Source = {
   lastSuccess: string | null;
   lastError: string | null;
   nextCheckAt: string | null;
+  monitoringEndsAt: string | null;
   scans: Scan[];
   _count: { candidates: number; scans: number };
 };
@@ -58,6 +59,30 @@ function formatDate(value: string | null): string {
   );
 }
 
+function formatDateOnly(value: string | null): string {
+  if (!value) return 'No end date';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value));
+}
+
+function dateInputValue(value: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 10);
+}
+
+function localEndOfDayIso(value: string): string | null {
+  if (!value) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day, 23, 59, 59, 999).toISOString();
+}
+
+function monitoringEnded(source: Source): boolean {
+  return Boolean(
+    source.enabled && source.monitoringEndsAt && new Date(source.monitoringEndsAt) < new Date()
+  );
+}
+
 export default function AdminEventWatchPanel() {
   const [sources, setSources] = useState<Source[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -70,6 +95,7 @@ export default function AdminEventWatchPanel() {
   const [region, setRegion] = useState('');
   const [topics, setTopics] = useState('');
   const [intervalHours, setIntervalHours] = useState(24);
+  const [monitoringEndDate, setMonitoringEndDate] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -119,6 +145,7 @@ export default function AdminEventWatchPanel() {
           checkInterval: intervalHours * 60 * 60 * 1000,
           authority: 'OFFICIAL',
           adapterType: 'GENERIC',
+          monitoringEndsAt: localEndOfDayIso(monitoringEndDate),
         }),
       });
       const data = await response.json();
@@ -127,6 +154,7 @@ export default function AdminEventWatchPanel() {
       setUrl('');
       setRegion('');
       setTopics('');
+      setMonitoringEndDate('');
       setNotice('Source added. Run its first scan when ready.');
       await refresh();
     } catch (addError) {
@@ -276,6 +304,15 @@ export default function AdminEventWatchPanel() {
               <option value={168}>7 days</option>
             </select>
           </label>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Stop checking after <span className="font-normal text-gray-500">(optional)</span>
+            <input
+              type="date"
+              value={monitoringEndDate}
+              onChange={(event) => setMonitoringEndDate(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
+            />
+          </label>
         </div>
         <button
           disabled={busyId === 'new-source'}
@@ -304,66 +341,173 @@ export default function AdminEventWatchPanel() {
             No monitored sources yet.
           </p>
         ) : (
-          <div className="space-y-4">
-            {sources.map((source) => (
-              <article
-                key={source.id}
-                className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900"
-              >
-                <div className="flex flex-col justify-between gap-4 lg:flex-row">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h4 className="font-semibold text-gray-900 dark:text-white">
-                        {source.name || source.url}
-                      </h4>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${source.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}
-                      >
-                        {source.enabled ? 'Enabled' : 'Disabled'}
-                      </span>
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
-                        {source.adapterType}
-                      </span>
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                Active sources (
+                {sources.filter((source) => source.enabled && !monitoringEnded(source)).length})
+              </h4>
+              {sources
+                .filter((source) => source.enabled && !monitoringEnded(source))
+                .map((source) => (
+                  <article
+                    key={source.id}
+                    className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900"
+                  >
+                    <div className="flex flex-col justify-between gap-4 lg:flex-row">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="font-semibold text-gray-900 dark:text-white">
+                            {source.name || source.url}
+                          </h4>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${source.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}
+                          >
+                            Active
+                          </span>
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                            {source.adapterType}
+                          </span>
+                        </div>
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 block truncate text-sm text-blue-600 hover:underline"
+                        >
+                          {source.url}
+                        </a>
+                        <div className="mt-3 grid gap-1 text-xs text-gray-500 sm:grid-cols-2">
+                          <span>Last checked: {formatDate(source.lastChecked)}</span>
+                          <span>Next check: {formatDate(source.nextCheckAt)}</span>
+                          <span>
+                            {source._count.scans} scans · {source._count.candidates} observations
+                          </span>
+                          <span>Every {Math.round(source.checkInterval / 3_600_000)} hours</span>
+                          <span>Stops: {formatDateOnly(source.monitoringEndsAt)}</span>
+                        </div>
+                        <label className="mt-3 block max-w-xs text-xs font-medium text-gray-600 dark:text-gray-300">
+                          Stop checking after
+                          <input
+                            type="date"
+                            defaultValue={dateInputValue(source.monitoringEndsAt)}
+                            disabled={busyId === source.id}
+                            onChange={(event) =>
+                              void updateSource(source, {
+                                monitoringEndsAt: localEndOfDayIso(event.target.value),
+                              })
+                            }
+                            className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
+                          />
+                        </label>
+                        {source.lastError && (
+                          <p className="mt-2 text-sm text-red-600">
+                            Last error: {source.lastError}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          disabled={busyId === source.id || !source.enabled}
+                          onClick={() => void scanSource(source)}
+                          className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {busyId === source.id ? 'Working…' : 'Scan now'}
+                        </button>
+                        <button
+                          disabled={busyId === source.id}
+                          onClick={() => void updateSource(source, { enabled: !source.enabled })}
+                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:text-gray-200"
+                        >
+                          {source.enabled ? 'Disable' : 'Enable'}
+                        </button>
+                      </div>
                     </div>
-                    <a
-                      href={source.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1 block truncate text-sm text-blue-600 hover:underline"
-                    >
-                      {source.url}
-                    </a>
-                    <div className="mt-3 grid gap-1 text-xs text-gray-500 sm:grid-cols-2">
-                      <span>Last checked: {formatDate(source.lastChecked)}</span>
-                      <span>Next check: {formatDate(source.nextCheckAt)}</span>
-                      <span>
-                        {source._count.scans} scans · {source._count.candidates} observations
-                      </span>
-                      <span>Every {Math.round(source.checkInterval / 3_600_000)} hours</span>
-                    </div>
-                    {source.lastError && (
-                      <p className="mt-2 text-sm text-red-600">Last error: {source.lastError}</p>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <button
-                      disabled={busyId === source.id || !source.enabled}
-                      onClick={() => void scanSource(source)}
-                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {busyId === source.id ? 'Working…' : 'Scan now'}
-                    </button>
-                    <button
-                      disabled={busyId === source.id}
-                      onClick={() => void updateSource(source, { enabled: !source.enabled })}
-                      className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:text-gray-200"
-                    >
-                      {source.enabled ? 'Disable' : 'Enable'}
-                    </button>
-                  </div>
+                  </article>
+                ))}
+            </div>
+
+            {sources.some((source) => !source.enabled || monitoringEnded(source)) && (
+              <details className="rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-950/40">
+                <summary className="cursor-pointer px-5 py-4 font-semibold text-gray-800 dark:text-gray-200">
+                  Inactive sources (
+                  {sources.filter((source) => !source.enabled || monitoringEnded(source)).length})
+                  <span className="ml-2 text-sm font-normal text-gray-500">
+                    Disabled and monitoring ended
+                  </span>
+                </summary>
+                <div className="space-y-4 border-t border-gray-200 p-4 dark:border-gray-700">
+                  {sources
+                    .filter((source) => !source.enabled || monitoringEnded(source))
+                    .map((source) => {
+                      const ended = monitoringEnded(source);
+                      return (
+                        <article
+                          key={source.id}
+                          className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900"
+                        >
+                          <div className="flex flex-col justify-between gap-4 lg:flex-row">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="font-semibold text-gray-900 dark:text-white">
+                                  {source.name || source.url}
+                                </h4>
+                                <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                                  {ended ? 'Monitoring ended' : 'Disabled'}
+                                </span>
+                              </div>
+                              <a
+                                href={source.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-1 block truncate text-sm text-blue-600 hover:underline"
+                              >
+                                {source.url}
+                              </a>
+                              <p className="mt-2 text-xs text-gray-500">
+                                {source._count.scans} scans · {source._count.candidates}{' '}
+                                observations · Stops: {formatDateOnly(source.monitoringEndsAt)}
+                              </p>
+                              <label className="mt-3 block max-w-xs text-xs font-medium text-gray-600 dark:text-gray-300">
+                                Stop checking after
+                                <input
+                                  type="date"
+                                  defaultValue={dateInputValue(source.monitoringEndsAt)}
+                                  disabled={busyId === source.id}
+                                  onChange={(event) =>
+                                    void updateSource(source, {
+                                      monitoringEndsAt: localEndOfDayIso(event.target.value),
+                                    })
+                                  }
+                                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
+                                />
+                              </label>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <button
+                                disabled={busyId === source.id || !source.enabled}
+                                onClick={() => void scanSource(source)}
+                                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                {busyId === source.id ? 'Working…' : 'Scan now'}
+                              </button>
+                              <button
+                                disabled={busyId === source.id}
+                                onClick={() =>
+                                  void updateSource(source, { enabled: !source.enabled })
+                                }
+                                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:text-gray-200"
+                              >
+                                {source.enabled ? 'Disable' : 'Enable'}
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
                 </div>
-              </article>
-            ))}
+              </details>
+            )}
           </div>
         )}
       </section>

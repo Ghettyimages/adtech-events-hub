@@ -20,6 +20,7 @@ const createSourceSchema = z.object({
     .max(30 * 24 * 60 * 60 * 1000)
     .default(EVENT_WATCH_DEFAULT_INTERVAL_MS),
   enabled: z.boolean().default(true),
+  monitoringEndsAt: z.string().datetime().optional().nullable(),
 });
 
 export async function GET() {
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
         topics: input.topics.length ? JSON.stringify(input.topics) : null,
         checkInterval: input.checkInterval,
         enabled: input.enabled,
+        monitoringEndsAt: input.monitoringEndsAt ? new Date(input.monitoringEndsAt) : null,
         nextCheckAt: new Date(),
       },
     });

@@ -191,6 +191,7 @@ model MonitoredUrl {
   region        String?
   topics        String?  // JSON string array
   nextCheckAt   DateTime?
+  monitoringEndsAt DateTime?
   failureCount  Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -199,6 +200,7 @@ model MonitoredUrl {
   candidates EventWatchCandidate[]
 
   @@index([enabled, nextCheckAt])
+  @@index([enabled, monitoringEndsAt])
 }
 
 model EventWatchScan {

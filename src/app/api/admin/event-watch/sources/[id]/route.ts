@@ -16,6 +16,7 @@ const updateSchema = z.object({
   authority: z.string().trim().min(1).max(50).optional(),
   region: z.string().trim().max(100).nullable().optional(),
   topics: z.array(z.string().trim().min(1).max(80)).max(25).optional(),
+  monitoringEndsAt: z.string().datetime().optional().nullable(),
 });
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -24,12 +25,29 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const { id } = await params;
     const input = updateSchema.parse(await request.json());
+    const existing = await prisma.monitoredUrl.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: 'Monitored source not found' }, { status: 404 });
+    }
+    const monitoringEndsAt =
+      input.monitoringEndsAt === undefined
+        ? existing.monitoringEndsAt
+        : input.monitoringEndsAt === null
+          ? null
+          : new Date(input.monitoringEndsAt);
+    const enabled = input.enabled ?? existing.enabled;
+    const wasEnded = Boolean(existing.monitoringEndsAt && existing.monitoringEndsAt < new Date());
+    const isEnded = Boolean(monitoringEndsAt && monitoringEndsAt < new Date());
+    let nextCheckAt = existing.nextCheckAt;
+    if (!enabled || isEnded) nextCheckAt = null;
+    else if (input.enabled === true || (wasEnded && !isEnded)) nextCheckAt = new Date();
     const source = await prisma.monitoredUrl.update({
       where: { id },
       data: {
         ...input,
+        monitoringEndsAt,
         topics: input.topics === undefined ? undefined : JSON.stringify(input.topics),
-        nextCheckAt: input.enabled === true ? new Date() : undefined,
+        nextCheckAt,
       },
     });
     return NextResponse.json({ source });

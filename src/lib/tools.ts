@@ -17,12 +17,9 @@ import {
   normalizeEventForHubIngest,
   normalizeEventForWrite,
   temporalFieldsForPrisma,
+  temporalInputFromEventStrings,
   toExtractedTemporalTransport,
 } from './eventTemporal';
-
-function hasTimeInString(s: string): boolean {
-  return /T\d{1,2}:\d{2}/.test(s) || /\d{1,2}:\d{2}/.test(s);
-}
 
 export interface NormalizeEventsInput {
   events: ExtractedEvent[];
@@ -89,14 +86,13 @@ export async function normalize_events(
 
       let temporal;
       try {
-        const input = fromCsvRow({
+        const input = temporalInputFromEventStrings({
           start: event.start,
           end: event.end || event.start,
           timezone: event.timezone || effectiveDefault,
+          temporalKind: event.temporalKind,
+          hubTimezone,
         });
-        if (hubTimezone && (hasTimeInString(event.start) || hasTimeInString(event.end || ''))) {
-          input.temporalKind = TEMPORAL_KIND.TIMED;
-        }
         if (hubTimezone) {
           const { normalized } = normalizeEventForHubIngest(
             {
@@ -154,6 +150,7 @@ export async function normalize_events(
         start: transportedTemporal.start,
         end: transportedTemporal.end,
         timezone: transportedTemporal.timezone,
+        temporalKind: temporal.temporalKind,
         location: event.location?.trim() || undefined,
         url: event.url?.trim() || undefined,
         description: event.description?.trim() || undefined,
@@ -269,14 +266,13 @@ export async function ingestScrapedEvents(
         showOnMainCalendar = applyHubEventDefaults({ hubId }).showOnMainCalendar;
       }
 
-      const temporalInput = fromCsvRow({
+      const temporalInput = temporalInputFromEventStrings({
         start: event.start,
         end: event.end,
-        timezone: event.timezone || hubTimezone || undefined,
+        timezone: event.timezone,
+        temporalKind: event.temporalKind,
+        hubTimezone,
       });
-      if (hubTimezone && (hasTimeInString(event.start) || hasTimeInString(event.end || ''))) {
-        temporalInput.temporalKind = TEMPORAL_KIND.TIMED;
-      }
       const temporal = hubTimezone
         ? normalizeEventForHubIngest(
             {

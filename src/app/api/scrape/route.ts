@@ -271,6 +271,8 @@ export async function POST(request: NextRequest) {
       url: event.url,
       description: event.description,
       source: event.source,
+      timezone: event.timezone,
+      temporalKind: event.temporalKind,
       date_status: event.date_status,
       location_status: event.location_status,
       evidence: event.evidence,

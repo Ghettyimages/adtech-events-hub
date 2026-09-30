@@ -24,6 +24,7 @@ import {
   FESTIVAL_HUB_DEFAULT_ZONE,
 } from '../src/lib/eventTemporal';
 import { sanitizeScheduleWallClock } from '../src/lib/scheduleWallClock';
+import { extractStrictDates } from '../src/lib/extractor/dateExtractor';
 
 function testAllDayInvariant() {
   const { start, end } = allDayInstantsFromCivilDates('2026-07-29', '2026-07-31');
@@ -261,6 +262,46 @@ function testTimedNoonUtcStaysTimedOnSecondPass() {
   assert.equal(second.end.toISOString(), first.end.toISOString());
 }
 
+function testPlaceholderInstantsWithoutZoneStayAllDay() {
+  const input = fromCsvRow({
+    start: '2026-10-01T12:00:00.000Z',
+    end: '2026-10-01T22:00:00.000Z',
+  });
+  assert.equal(input.temporalKind, TEMPORAL_KIND.ALL_DAY);
+}
+
+function testSplashPageClockTime() {
+  const html = `
+    <html><body>
+      Launch Party
+      October 1
+      10 / 01 / 2026
+      6:00pm - 11:00pm
+      New York, NY
+      09/22/2026 7:30PM - 11:30PM
+    </body></html>
+  `;
+  const dates = extractStrictDates(html);
+  assert.equal(dates.date_status, 'confirmed');
+  assert.equal(dates.start, '2026-10-01T18:00:00');
+  assert.equal(dates.end, '2026-10-01T23:00:00');
+
+  const normalized = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: dates.start!,
+    end: dates.end!,
+    timezone: 'America/New_York',
+  });
+  assert.equal(
+    utcInstantToWallClockDateTime(normalized.start, 'America/New_York'),
+    '2026-10-01T18:00:00'
+  );
+  assert.equal(
+    utcInstantToWallClockDateTime(normalized.end, 'America/New_York'),
+    '2026-10-01T23:00:00'
+  );
+}
+
 function testDstBoundary() {
   const normalized = normalizeEventForWrite({
     temporalKind: TEMPORAL_KIND.TIMED,
@@ -358,6 +399,8 @@ function run() {
   testAllDayExtractionTransportRoundTrip();
   testTimedExtractionTransportPreservesRealTimes();
   testAllDayPlaceholdersStayAllDayWhenHubZonePresent();
+  testPlaceholderInstantsWithoutZoneStayAllDay();
+  testSplashPageClockTime();
   testTimedNoonUtcStaysTimedOnSecondPass();
   testDstBoundary();
   testScheduleMainCalendarNyWallClock();

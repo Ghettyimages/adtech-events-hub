@@ -364,6 +364,128 @@ const fromVisibleText = (html: string): StrictDateResult | null => {
  * @param html - The HTML content to extract dates from
  * @returns StrictDateResult with extracted dates or TBD status
  */
+/** 6:00 PM → 18:00:00. Hour is 1–12 with an am/pm marker. */
+export function clockToHms(hour: number, minute: number, ampm: string): string {
+  let h = hour % 12;
+  if (ampm.toLowerCase().startsWith('p')) h += 12;
+  return `${String(h).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+}
+
+const TIME_RANGE_SRC = String.raw`(\d{1,2})(?::(\d{2}))?\s*([ap]m)\s*(?:-|–|—|to)\s*(\d{1,2})(?::(\d{2}))?\s*([ap]m)`;
+
+function rangeFromGroups(
+  hour: string,
+  minute: string | undefined,
+  ampm: string,
+  endHour: string,
+  endMinute: string | undefined,
+  endAmpm: string
+): { start: string; end: string } | null {
+  const sh = parseInt(hour, 10);
+  const eh = parseInt(endHour, 10);
+  const sm = parseInt(minute || '0', 10);
+  const em = parseInt(endMinute || '0', 10);
+  if ([sh, eh].some((n) => Number.isNaN(n) || n < 1 || n > 12)) return null;
+  if ([sm, em].some((n) => Number.isNaN(n) || n < 0 || n > 59)) return null;
+  return {
+    start: clockToHms(sh, sm, ampm),
+    end: clockToHms(eh, em, endAmpm),
+  };
+}
+
+/**
+ * Find a clock range that belongs to this civil day.
+ * Handles "10/01/2026 6:00pm - 11:00pm" and "10.01 | 6PM" when a matching range exists.
+ */
+export function findTimeRangeForYmd(
+  text: string,
+  ymd: string
+): { start: string; end: string; evidence: string } | null {
+  const [year, month, day] = ymd.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  const yy = String(year).slice(2);
+  const collapsed = text.replace(/\s+/g, ' ');
+  const monthToken = `0?${month}`;
+  const dayToken = `0?${day}`;
+  const yearToken = `(?:${year}|${yy})`;
+
+  const numeric = new RegExp(
+    String.raw`(?:^|\D)${monthToken}\s*[\/.]\s*${dayToken}\s*[\/.]\s*${yearToken}\s*${TIME_RANGE_SRC}`,
+    'i'
+  ).exec(collapsed);
+  if (numeric) {
+    const range = rangeFromGroups(numeric[1], numeric[2], numeric[3], numeric[4], numeric[5], numeric[6]);
+    if (range) return { ...range, evidence: numeric[0].trim() };
+  }
+
+  const monthName = MONTH_NAMES[month - 1];
+  const monthRe = `${monthName.slice(0, 3)}(?:${monthName.slice(3)})?`;
+  const named = new RegExp(
+    String.raw`\b${monthRe}\s+${dayToken}(?:st|nd|rd|th)?(?:,?\s*${yearToken})?.{0,160}?${TIME_RANGE_SRC}`,
+    'i'
+  ).exec(collapsed);
+  if (named) {
+    const range = rangeFromGroups(named[1], named[2], named[3], named[4], named[5], named[6]);
+    if (range) return { ...range, evidence: named[0].replace(/\s+/g, ' ').trim() };
+  }
+
+  const pipe = new RegExp(
+    String.raw`(?:^|\D)${monthToken}\s*[\/.]\s*${dayToken}(?:\s*[\/.]\s*${yearToken})?\s*\|\s*(\d{1,2})(?::(\d{2}))?\s*([ap]m)`,
+    'i'
+  ).exec(collapsed);
+  if (pipe) {
+    const startHms = clockToHms(parseInt(pipe[1], 10), parseInt(pipe[2] || '0', 10), pipe[3]);
+    const rangeRe = new RegExp(TIME_RANGE_SRC, 'gi');
+    let rangeMatch: RegExpExecArray | null;
+    while ((rangeMatch = rangeRe.exec(collapsed)) !== null) {
+      const range = rangeFromGroups(
+        rangeMatch[1],
+        rangeMatch[2],
+        rangeMatch[3],
+        rangeMatch[4],
+        rangeMatch[5],
+        rangeMatch[6]
+      );
+      if (range?.start === startHms) {
+        return { ...range, evidence: `${pipe[0].trim()} (${rangeMatch[0]})` };
+      }
+    }
+  }
+
+  return null;
+}
+
+function nextYmd(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const month = String(next.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(next.getUTCDate()).padStart(2, '0');
+  return `${next.getUTCFullYear()}-${month}-${day}`;
+}
+
+/** If the page states a clock time for this date, keep it as a zoneless wall-clock. */
+export function attachClockTimes(result: StrictDateResult, html: string): StrictDateResult {
+  if (!result.start || result.start.includes('T')) return result;
+  const ymd = result.start.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return result;
+
+  const text = cheerio.load(html)('body').text();
+  const range = findTimeRangeForYmd(text, ymd);
+  if (!range) return result;
+
+  const endYmd = result.end && /^\d{4}-\d{2}-\d{2}/.test(result.end) ? result.end.slice(0, 10) : ymd;
+  const endDate = range.end <= range.start ? nextYmd(endYmd) : endYmd;
+
+  return {
+    ...result,
+    start: `${ymd}T${range.start}`,
+    end: `${endDate}T${range.end}`,
+    date_status: 'confirmed',
+    evidence: range.evidence,
+    evidence_context: result.evidence_context ?? 'visible-text',
+  };
+}
+
 export function extractStrictDates(html: string): StrictDateResult {
   logDebug('Starting strict date extraction');
 
@@ -371,21 +493,21 @@ export function extractStrictDates(html: string): StrictDateResult {
   const jsonLd = fromJsonLd(html);
   if (jsonLd) {
     logDebug('Dates from JSON-LD');
-    return jsonLd;
+    return attachClockTimes(jsonLd, html);
   }
 
   // Try meta tags
   const meta = fromMetaTags(html);
   if (meta) {
     logDebug('Dates from meta tags');
-    return meta;
+    return attachClockTimes(meta, html);
   }
 
   // Try visible text
   const visible = fromVisibleText(html);
   if (visible) {
     logDebug('Dates from visible text');
-    return visible;
+    return attachClockTimes(visible, html);
   }
 
   logDebug('No date evidence found, marking TBD');

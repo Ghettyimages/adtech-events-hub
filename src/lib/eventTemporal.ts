@@ -240,6 +240,20 @@ function hasTimeInString(s: string): boolean {
   return /T\d{1,2}:\d{2}/.test(s) || /\d{1,2}:\d{2}/.test(s);
 }
 
+/** True when both instants are the all-day storage contract (12:00Z and 22:00Z). */
+function isAllDayPlaceholderPair(start?: string, end?: string): boolean {
+  if (!start || !end) return false;
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return false;
+  const isUtcTime = (date: Date, hour: number) =>
+    date.getUTCHours() === hour &&
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0 &&
+    date.getUTCMilliseconds() === 0;
+  return isUtcTime(startDate, 12) && isUtcTime(endDate, 22);
+}
+
 /** Midnight UTC on civil day — likely bad ALL_DAY ingest */
 function looksLikeMidnightUtcIngest(start: Date, end: Date, kind: TemporalKind): boolean {
   if (kind !== TEMPORAL_KIND.ALL_DAY) return false;
@@ -573,6 +587,9 @@ export function fromCsvRow(row: {
     kind = TEMPORAL_KIND.ALL_DAY;
   } else if (allDayExplicit === 'false' || allDayExplicit === '0' || allDayExplicit === 'no') {
     kind = TEMPORAL_KIND.TIMED;
+  } else if (isAllDayPlaceholderPair(row.start, row.end) && !row.timezone?.trim()) {
+    // 12:00Z/22:00Z with no zone are all-day storage instants, not 8:00 AM–6:00 PM.
+    kind = TEMPORAL_KIND.ALL_DAY;
   } else {
     const startHasTime = row.start ? hasTimeInString(row.start) : false;
     const endHasTime = row.end ? hasTimeInString(row.end) : false;

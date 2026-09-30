@@ -210,7 +210,11 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const filteredEvents = skipPastEvents
       ? normalizationResult.events.filter((event) => {
-          const endDate = new Date(event.end || event.start || "");
+          const value = (event.end || event.start || '').trim();
+          if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+            return value >= now.toISOString().slice(0, 10);
+          }
+          const endDate = new Date(value);
           return !isNaN(endDate.getTime()) && endDate >= now;
         })
       : normalizationResult.events;

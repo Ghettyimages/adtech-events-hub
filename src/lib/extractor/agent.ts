@@ -9,7 +9,7 @@ import fetch from 'node-fetch';
 import { parse, isValid } from 'date-fns';
 import * as cheerio from 'cheerio';
 import { extractFromHtml } from './extractFromHtml';
-import { extractStrictDates } from './dateExtractor';
+import { attachClockTimes, clockToHms, extractStrictDates } from './dateExtractor';
 import { extractStrictLocation } from './locationExtractor';
 import { getRenderedHTML } from '../render';
 import { dedupeBasisString } from '../dedupe';
@@ -38,7 +38,7 @@ Identify Event Records: An event is a single occurrence or multi-day happening w
 
 Field Definitions (confirm before extracting): Title — The event’s proper name, not the venue, organizer, or category label. Dates (Start and End) — The actual event dates, not posting dates, sales periods, or booking windows. Location (City, State abbreviation) — The physical event city and USPS two-letter state code (e.g., “Austin, TX”). If only city appears, set the state to null. If virtual/online only, set location to null. Link to event page — The canonical event detail URL (prefer the event’s dedicated page over listing hubs). Source — The site the event was found on: extract the core URL between https://www. and .com and capitalize appropriately (e.g., https://www.mediapost.com/events/2026/ → "MediaPost"). If the URL does not start with https://www., derive the registrable domain (e.g., events.mediapost.com → "MediaPost"). 
 
-Normalization Rules: Dates output in the format Mon DD, YYYY (e.g., Oct 29, 2025). If only one date appears, use it for both start and end. If month/day appear without year, infer from page context; if ambiguous, set the year from the nearest explicit reference on the page; if still ambiguous, set null. Location: output as a single string "City, ST" or null. Derive USPS state from full name when needed (e.g., “California” → “CA”). Do not invent cities/states. Links: absolute HTTPS URLs only. Text: trim whitespace; remove tracking query params when clearly nonessential (e.g., utm_*, fbclid). 
+Normalization Rules: Dates output in the format Mon DD, YYYY (e.g., Oct 29, 2025). If a clock time is shown, append it: Oct 01, 2026 6:00 PM. Put the end time on the end date the same way. If only one date appears, use it for both start and end. If month/day appear without year, infer from page context; if ambiguous, set the year from the nearest explicit reference on the page; if still ambiguous, set null. Location: output as a single string "City, ST" or null. Derive USPS state from full name when needed (e.g., “California” → “CA”). Do not invent cities/states. Links: absolute HTTPS URLs only. Text: trim whitespace; remove tracking query params when clearly nonessential (e.g., utm_*, fbclid). 
 
 Disambiguation Checks (before returning any result): For each candidate event, ask yourself: Is this really the event title (not a venue or category tag)? Are these the event dates (not deadlines, door times, or sales windows)? Is this the event page (not a category, search result, or sponsor link)? Did I fully expand lazy-loaded sections and pagination? Only include the event if all answers are confidently yes. 
 
@@ -73,15 +73,49 @@ Error Handling: If the page lists events but none meet the confirmation checks, 
 
 const parseDateToISO = (value: string | null | undefined): string | undefined => {
   if (!value) return undefined;
-  const parsed = parse(value, 'MMM dd, yyyy', new Date());
-  if (!isValid(parsed)) return undefined;
-  // Return date-only format (YYYY-MM-DD) for all-day events
-  // This allows normalization to properly detect and handle all-day events
+  const match = value
+    .trim()
+    .match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})(?:\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m))?/i);
+  if (!match) return undefined;
+  const dateText = `${match[1]} ${match[2]}, ${match[3]}`;
+  const parsed =
+    [parse(dateText, 'MMM d, yyyy', new Date()), parse(dateText, 'MMMM d, yyyy', new Date())].find(
+      (candidate) => isValid(candidate)
+    ) ?? null;
+  if (!parsed) return undefined;
   const year = parsed.getFullYear();
   const month = String(parsed.getMonth() + 1).padStart(2, '0');
   const day = String(parsed.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const ymd = `${year}-${month}-${day}`;
+  if (!match[4]) return ymd;
+  const hour = parseInt(match[4], 10);
+  const minute = parseInt(match[5] || '0', 10);
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return ymd;
+  return `${ymd}T${clockToHms(hour, minute, match[6])}`;
 };
+
+function applyPageClockTimes(event: ExtractedEvent, html: string): ExtractedEvent {
+  if (!event.start || event.start.includes('T')) return event;
+  const upgraded = attachClockTimes(
+    {
+      start: event.start,
+      end: event.end,
+      date_status: event.date_status,
+      evidence: event.evidence,
+      evidence_context: event.evidence_context,
+    },
+    html
+  );
+  if (!upgraded.start?.includes('T')) return event;
+  return {
+    ...event,
+    start: upgraded.start,
+    end: upgraded.end ?? upgraded.start,
+    date_status: 'confirmed',
+    evidence: upgraded.evidence ?? event.evidence,
+    evidence_context: upgraded.evidence_context ?? event.evidence_context,
+  };
+}
 
 const deriveSourceName = (finalUrl: string, provided?: string | null): string | undefined => {
   const candidate = provided?.trim();
@@ -1104,7 +1138,7 @@ const verifyWithContext = (
       }
     }
     if (bestDirect) {
-      return bestDirect.refined;
+      return applyPageClockTimes(bestDirect.refined, html);
     }
   }
 
@@ -1152,7 +1186,7 @@ const verifyWithContext = (
       }
     }
 
-    return noContextResult;
+    return applyPageClockTimes(noContextResult, html);
   }
 
   if (process.env.DEBUG_EXTRACTOR === '1') {
@@ -1169,7 +1203,7 @@ const verifyWithContext = (
     if (refinedFromSnippet.location && refinedFromSnippet.location_status === 'confirmed') {
       // eslint-disable-next-line no-console
       console.log('[extractor] Returning early with refined snippet location');
-      return refinedFromSnippet;
+      return applyPageClockTimes(refinedFromSnippet, html);
     }
     // If refineEventFromSnippet found dates but no location, merge with location verification below
     useRefinedSnippet = true;
@@ -1473,7 +1507,7 @@ const verifyWithContext = (
     next.location_evidence_context = undefined;
   }
 
-  return next;
+  return applyPageClockTimes(next, html);
 };
 
 const ensureDateEvidence = (

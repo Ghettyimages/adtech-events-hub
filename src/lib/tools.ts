@@ -16,6 +16,7 @@ import {
   fromCsvRow,
   normalizeEventForHubIngest,
   normalizeEventForWrite,
+  formatYmdUtc,
   temporalFieldsForPrisma,
   temporalInputFromEventStrings,
 } from './eventTemporal';
@@ -144,8 +145,14 @@ export async function normalize_events(
       const normalizedEvent: ExtractedEvent = {
         ...event,
         title: event.title.trim(),
-        start: temporal.start.toISOString(),
-        end: temporal.end.toISOString(),
+        start:
+          temporal.temporalKind === TEMPORAL_KIND.ALL_DAY && temporal.allDayStartDate
+            ? formatYmdUtc(temporal.allDayStartDate)
+            : temporal.start.toISOString(),
+        end:
+          temporal.temporalKind === TEMPORAL_KIND.ALL_DAY && temporal.allDayEndDate
+            ? formatYmdUtc(temporal.allDayEndDate)
+            : temporal.end.toISOString(),
         timezone: temporal.timezone ?? undefined,
         temporalKind: temporal.temporalKind,
         location: event.location?.trim() || undefined,

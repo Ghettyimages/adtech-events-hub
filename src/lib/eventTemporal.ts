@@ -587,6 +587,41 @@ export function fromCsvRow(row: {
   };
 }
 
+/**
+ * Classify start/end strings for normalize and ingest.
+ *
+ * All-day storage uses 12:00Z/22:00Z placeholders. Those strings contain a time,
+ * so a second pass must keep an explicit ALL_DAY kind instead of treating them
+ * as clock times. A hub timezone must not override that kind.
+ */
+export function temporalInputFromEventStrings(args: {
+  start: string;
+  end?: string;
+  timezone?: string | null;
+  temporalKind?: string | null;
+  hubTimezone?: string | null;
+}): EventTemporalInput {
+  const hubTz = args.hubTimezone?.trim() || undefined;
+  const explicitKind =
+    args.temporalKind === TEMPORAL_KIND.ALL_DAY || args.temporalKind === TEMPORAL_KIND.TIMED
+      ? args.temporalKind
+      : undefined;
+  const input = fromCsvRow({
+    start: args.start,
+    end: args.end || args.start,
+    timezone: args.timezone?.trim() || hubTz,
+    temporal_kind: explicitKind,
+  });
+  if (
+    hubTz &&
+    input.temporalKind !== TEMPORAL_KIND.ALL_DAY &&
+    (hasTimeInString(args.start) || (args.end ? hasTimeInString(args.end) : false))
+  ) {
+    input.temporalKind = TEMPORAL_KIND.TIMED;
+  }
+  return input;
+}
+
 export function buildGoogleCalendarUrl(event: Event): string {
   const params = new URLSearchParams();
   params.set('action', 'TEMPLATE');

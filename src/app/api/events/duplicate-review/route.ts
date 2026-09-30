@@ -31,6 +31,12 @@ function dbEventToExtracted(ev: Event): ExtractedEvent {
     description: ev.description || undefined,
     source: ev.source || undefined,
     timezone: ev.timezone || undefined,
+    temporalKind:
+      ev.temporalKind === 'ALL_DAY' || ev.temporalKind === 'TIMED'
+        ? ev.temporalKind
+        : ev.timezone
+          ? 'TIMED'
+          : 'ALL_DAY',
     tags,
     city: ev.city || undefined,
     region: ev.region || undefined,

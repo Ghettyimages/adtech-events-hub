@@ -13,6 +13,8 @@ export type ExtractedEvent = {
   sponsoredBy?: string;
   sponsorKind?: 'SPONSORED' | 'PARTNERSHIP';
   timezone?: string;
+  /** Set after normalization so a later pass does not treat all-day placeholders as clock times. */
+  temporalKind?: 'ALL_DAY' | 'TIMED';
   date_status: 'confirmed' | 'tbd';
   evidence?: string;
   evidence_context?: string;

@@ -11,6 +11,7 @@ import {
   coerceHubEventTimezone,
   fromCsvRow,
   normalizeEventForWrite,
+  temporalInputFromEventStrings,
   normalizeEventForHubIngest,
   repairHubTimedTemporal,
   storedTemporalEquals,
@@ -163,6 +164,62 @@ function testCsvRoundTrip() {
   assert.equal(again.end.toISOString(), normalized.end.toISOString());
 }
 
+/** Date-only scrape: 12:00Z/22:00Z placeholders must stay all-day on the ingest pass. */
+function testAllDayPlaceholdersStayAllDayWhenHubZonePresent() {
+  const first = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.ALL_DAY,
+    start: '2026-10-01',
+    end: '2026-10-01',
+    timezone: null,
+  });
+  assert.equal(first.start.toISOString(), '2026-10-01T12:00:00.000Z');
+  assert.equal(first.end.toISOString(), '2026-10-01T22:00:00.000Z');
+
+  const secondInput = temporalInputFromEventStrings({
+    start: first.start.toISOString(),
+    end: first.end.toISOString(),
+    temporalKind: first.temporalKind,
+    hubTimezone: 'America/New_York',
+  });
+  assert.equal(secondInput.temporalKind, TEMPORAL_KIND.ALL_DAY);
+
+  const second = normalizeEventForWrite({
+    ...secondInput,
+    timezone: secondInput.temporalKind === TEMPORAL_KIND.TIMED ? 'America/New_York' : null,
+  });
+  assert.equal(second.temporalKind, TEMPORAL_KIND.ALL_DAY);
+  assert.equal(second.timezone, null);
+  assert.equal(second.start.toISOString(), '2026-10-01T12:00:00.000Z');
+  assert.equal(second.end.toISOString(), '2026-10-01T22:00:00.000Z');
+}
+
+/** A real noon-UTC instant (14:00 Paris) must stay timed across the same second pass. */
+function testTimedNoonUtcStaysTimedOnSecondPass() {
+  const first = normalizeEventForWrite({
+    temporalKind: TEMPORAL_KIND.TIMED,
+    start: '2026-06-22T14:00',
+    end: '2026-06-22T14:45',
+    timezone: 'Europe/Paris',
+  });
+  assert.equal(first.start.toISOString(), '2026-06-22T12:00:00.000Z');
+
+  const secondInput = temporalInputFromEventStrings({
+    start: first.start.toISOString(),
+    end: first.end.toISOString(),
+    timezone: first.timezone,
+    temporalKind: first.temporalKind,
+    hubTimezone: 'Europe/Paris',
+  });
+  const second = normalizeEventForWrite({
+    ...secondInput,
+    timezone: secondInput.temporalKind === TEMPORAL_KIND.TIMED ? 'Europe/Paris' : null,
+  });
+  assert.equal(second.temporalKind, TEMPORAL_KIND.TIMED);
+  assert.equal(second.timezone, 'Europe/Paris');
+  assert.equal(second.start.toISOString(), first.start.toISOString());
+  assert.equal(second.end.toISOString(), first.end.toISOString());
+}
+
 function testDstBoundary() {
   const normalized = normalizeEventForWrite({
     temporalKind: TEMPORAL_KIND.TIMED,
@@ -257,6 +314,8 @@ function run() {
   testRepairHubTimedFromWrongZone();
   testStoredTemporalEqualsIdempotent();
   testCsvRoundTrip();
+  testAllDayPlaceholdersStayAllDayWhenHubZonePresent();
+  testTimedNoonUtcStaysTimedOnSecondPass();
   testDstBoundary();
   testScheduleMainCalendarNyWallClock();
   testScheduleHubParisWallClock();

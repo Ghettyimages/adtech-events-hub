@@ -463,6 +463,27 @@ function nextYmd(ymd: string): string {
   return `${next.getUTCFullYear()}-${month}-${day}`;
 }
 
+/**
+ * Page clock range for this civil day, even when start already has a time.
+ * A model time such as 8:00 AM–6:00 PM must not hide 6:00pm–11:00pm on the page.
+ */
+export function preferPageClockTimes(
+  start: string | undefined,
+  end: string | undefined,
+  html: string
+): StrictDateResult | null {
+  if (!start) return null;
+  const ymd = start.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const endYmd = end && /^\d{4}-\d{2}-\d{2}/.test(end) ? end.slice(0, 10) : ymd;
+  const upgraded = attachClockTimes(
+    { start: ymd, end: endYmd, date_status: 'tbd' },
+    html
+  );
+  if (!upgraded.start?.includes('T')) return null;
+  return upgraded;
+}
+
 /** If the page states a clock time for this date, keep it as a zoneless wall-clock. */
 export function attachClockTimes(result: StrictDateResult, html: string): StrictDateResult {
   if (!result.start || result.start.includes('T')) return result;

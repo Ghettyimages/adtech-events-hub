@@ -3,6 +3,7 @@
  */
 
 import assert from 'node:assert/strict';
+import Module from 'node:module';
 import { DateTime } from 'luxon';
 import {
   TEMPORAL_KIND,
@@ -24,6 +25,50 @@ import {
 } from '../src/lib/eventTemporal';
 import { sanitizeScheduleWallClock } from '../src/lib/scheduleWallClock';
 import { extractStrictDates, preferPageClockTimes } from '../src/lib/extractor/dateExtractor';
+
+type RawAgentEvent = {
+  title: string;
+  dates: { start: string; end: string };
+  location: string | null;
+  link: string;
+  source: string;
+};
+
+async function loadExtractorForTests() {
+  const prototype = Module.prototype as unknown as {
+    require: (id: string, ...args: unknown[]) => unknown;
+  };
+  const originalRequire = prototype.require;
+  prototype.require = function (id: string, ...args: unknown[]) {
+    if (id === 'server-only') return {};
+    return originalRequire.call(this, id, ...args);
+  };
+  try {
+    return await import('../src/lib/extractor/agent');
+  } finally {
+    prototype.require = originalRequire;
+  }
+}
+
+async function extractFixture(rawEvent: RawAgentEvent, html: string) {
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY ||= 'extractor-test-key';
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify([rawEvent]) } }],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  try {
+    const { extractEventsFromUrl } = await loadExtractorForTests();
+    const result = await extractEventsFromUrl('https://example.com/event', 'Test', html);
+    assert.equal(result.events.length, 1);
+    return result.events[0];
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
 
 function testAllDayInvariant() {
   const { start, end } = allDayInstantsFromCivilDates('2026-07-29', '2026-07-31');
@@ -265,6 +310,94 @@ function testSplashPageClockTime() {
   );
 }
 
+async function testExtractorTemporalEvidenceAuthority() {
+  const baseRaw: RawAgentEvent = {
+    title: 'Launch Party',
+    dates: { start: 'Oct 01, 2026 8:00 AM', end: 'Oct 01, 2026 6:00 PM' },
+    location: null,
+    link: 'https://example.com/event',
+    source: 'Test',
+  };
+
+  // 1. An explicit source-page range overrides unsupported agent clocks.
+  const pageClock = await extractFixture(
+    baseRaw,
+    '<html><body><h1>Launch Party</h1><p>10/01/2026 6:00pm - 11:00pm</p></body></html>'
+  );
+  assert.equal(pageClock.start, '2026-10-01T18:00:00');
+  assert.equal(pageClock.end, '2026-10-01T23:00:00');
+  assert.equal(pageClock.temporalKind, TEMPORAL_KIND.TIMED);
+  assert.equal(pageClock.date_status, 'confirmed');
+  assert.equal(pageClock.evidence_context, 'visible-text');
+
+  // 2. Source-confirmed structured clocks remain timed without a visible range.
+  const structuredClock = await extractFixture(
+    baseRaw,
+    `<html><body><div>
+      <h1>Launch Party</h1>
+      <meta itemprop="startDate" content="2026-10-01T18:00:00-04:00">
+      <meta itemprop="endDate" content="2026-10-01T23:00:00-04:00">
+    </div></body></html>`
+  );
+  assert.equal(structuredClock.temporalKind, TEMPORAL_KIND.TIMED);
+  assert.equal(structuredClock.date_status, 'confirmed');
+  assert.equal(structuredClock.evidence_context, 'visible-text');
+  assert.match(structuredClock.start!, /T/);
+  assert.match(structuredClock.end!, /T/);
+
+  // 3. A source-confirmed date with no clock is explicitly all-day.
+  const sourceDateOnly = await extractFixture(
+    {
+      ...baseRaw,
+      dates: { start: 'Oct 01, 2026', end: 'Oct 01, 2026' },
+    },
+    '<html><body><h1>Launch Party</h1><p>October 1, 2026</p></body></html>'
+  );
+  assert.equal(sourceDateOnly.start, '2026-10-01');
+  assert.equal(sourceDateOnly.end, '2026-10-01');
+  assert.equal(sourceDateOnly.temporalKind, TEMPORAL_KIND.ALL_DAY);
+  assert.equal(sourceDateOnly.date_status, 'confirmed');
+  assert.equal(sourceDateOnly.evidence_context, 'visible-text');
+
+  // 4. Agent-only clocks lose their time component and never become confirmed.
+  const unsupportedClock = await extractFixture(
+    baseRaw,
+    '<html><body><h1>Launch Party</h1><p>Full schedule coming soon.</p></body></html>'
+  );
+  assert.equal(unsupportedClock.start, '2026-10-01');
+  assert.equal(unsupportedClock.end, '2026-10-01');
+  assert.equal(unsupportedClock.temporalKind, TEMPORAL_KIND.ALL_DAY);
+  assert.equal(unsupportedClock.date_status, 'tbd');
+  assert.equal(unsupportedClock.evidence, undefined);
+  assert.equal(unsupportedClock.evidence_context, 'agent');
+
+  // 5. Agent-only date guesses remain unconfirmed all-day civil dates.
+  const unsupportedDateOnly = await extractFixture(
+    {
+      ...baseRaw,
+      dates: { start: 'Oct 01, 2026', end: 'Oct 01, 2026' },
+    },
+    '<html><body><h1>Launch Party</h1><p>Full schedule coming soon.</p></body></html>'
+  );
+  assert.equal(unsupportedDateOnly.temporalKind, TEMPORAL_KIND.ALL_DAY);
+  assert.equal(unsupportedDateOnly.date_status, 'tbd');
+  assert.equal(unsupportedDateOnly.evidence_context, 'agent');
+
+  // 6. Multi-day preservation keeps only the agent end civil date, never its clock.
+  const multiDay = await extractFixture(
+    {
+      ...baseRaw,
+      dates: { start: 'Oct 01, 2026 8:00 AM', end: 'Oct 03, 2026 6:00 PM' },
+    },
+    '<html><body><h1>Launch Party</h1><p>October 1, 2026</p></body></html>'
+  );
+  assert.equal(multiDay.start, '2026-10-01');
+  assert.equal(multiDay.end, '2026-10-03');
+  assert.equal(multiDay.temporalKind, TEMPORAL_KIND.ALL_DAY);
+  assert.equal(multiDay.date_status, 'confirmed');
+  assert.equal(multiDay.evidence_context, 'visible-text');
+}
+
 function testDstBoundary() {
   const normalized = normalizeEventForWrite({
     temporalKind: TEMPORAL_KIND.TIMED,
@@ -350,7 +483,7 @@ function testSanitizeScheduleWallClockStripsOffset() {
   assert.equal(normalized.start.toISOString(), '2026-09-15T18:00:00.000Z');
 }
 
-function run() {
+async function run() {
   testAllDayInvariant();
   testTimedEtEveningGooglePayload();
   testCannesAfternoonGooglePayload();
@@ -362,6 +495,7 @@ function run() {
   testAllDayPlaceholdersStayAllDayWhenHubZonePresent();
   testPlaceholderInstantsWithoutZoneStayAllDay();
   testSplashPageClockTime();
+  await testExtractorTemporalEvidenceAuthority();
   testTimedNoonUtcStaysTimedOnSecondPass();
   testDstBoundary();
   testScheduleMainCalendarNyWallClock();
@@ -370,4 +504,7 @@ function run() {
   console.log('All eventTemporal tests passed.');
 }
 
-run();
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

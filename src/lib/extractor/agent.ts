@@ -94,16 +94,56 @@ const parseDateToISO = (value: string | null | undefined): string | undefined =>
   return `${ymd}T${clockToHms(hour, minute, match[6])}`;
 };
 
+const civilDate = (value: string | undefined): string | undefined => {
+  const match = value?.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match?.[1];
+};
+
+const hasClockTime = (value: string | undefined): boolean =>
+  Boolean(value && /T\d{2}:\d{2}/.test(value));
+
+const hasSourceDateEvidence = (event: ExtractedEvent): boolean =>
+  event.date_status === 'confirmed' &&
+  Boolean(event.evidence_context && event.evidence_context !== 'agent');
+
 function applyPageClockTimes(event: ExtractedEvent, html: string): ExtractedEvent {
+  // A clock range printed on the source page is authoritative over model output.
   const upgraded = preferPageClockTimes(event.start, event.end, html);
-  if (!upgraded?.start) return event;
+  if (upgraded?.start) {
+    return {
+      ...event,
+      start: upgraded.start,
+      end: upgraded.end ?? upgraded.start,
+      temporalKind: 'TIMED',
+      date_status: 'confirmed',
+      evidence: upgraded.evidence ?? event.evidence,
+      evidence_context: upgraded.evidence_context ?? 'visible-text',
+    };
+  }
+
+  // Source-confirmed clocks remain timed; source-confirmed civil dates are all-day.
+  if (hasSourceDateEvidence(event)) {
+    const timed = hasClockTime(event.start) || hasClockTime(event.end);
+    return {
+      ...event,
+      start: timed ? event.start : civilDate(event.start),
+      end: timed ? event.end : civilDate(event.end) ?? civilDate(event.start),
+      temporalKind: timed ? 'TIMED' : 'ALL_DAY',
+    };
+  }
+
+  // Agent-only times are hypotheses, not evidence. Keep only their civil dates so
+  // normalization cannot turn unsupported clocks into a timed event.
+  const start = civilDate(event.start);
+  const end = civilDate(event.end) ?? start;
   return {
     ...event,
-    start: upgraded.start,
-    end: upgraded.end ?? upgraded.start,
-    date_status: 'confirmed',
-    evidence: upgraded.evidence ?? event.evidence,
-    evidence_context: upgraded.evidence_context ?? event.evidence_context,
+    start,
+    end,
+    temporalKind: start ? 'ALL_DAY' : undefined,
+    date_status: 'tbd',
+    evidence: undefined,
+    evidence_context: start ? 'agent' : undefined,
   };
 }
 
@@ -1446,7 +1486,8 @@ const verifyWithContext = (
         });
       }
       next.start = dateInfo.startIso;
-      next.end = event.end; // Keep LLM's multi-day end date
+      // Preserve only the LLM's end civil date. Its clock has no source evidence.
+      next.end = civilDate(event.end) ?? dateInfo.endIso;
       next.evidence = `${dateInfo.evidence} (multi-day event)`;
       next.evidence_context = dateInfoEvidenceContext;
       next.date_status = 'confirmed';

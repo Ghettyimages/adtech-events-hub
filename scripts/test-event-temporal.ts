@@ -23,7 +23,7 @@ import {
   FESTIVAL_HUB_DEFAULT_ZONE,
 } from '../src/lib/eventTemporal';
 import { sanitizeScheduleWallClock } from '../src/lib/scheduleWallClock';
-import { extractStrictDates } from '../src/lib/extractor/dateExtractor';
+import { extractStrictDates, preferPageClockTimes } from '../src/lib/extractor/dateExtractor';
 
 function testAllDayInvariant() {
   const { start, end } = allDayInstantsFromCivilDates('2026-07-29', '2026-07-31');
@@ -244,6 +244,10 @@ function testSplashPageClockTime() {
   assert.equal(dates.date_status, 'confirmed');
   assert.equal(dates.start, '2026-10-01T18:00:00');
   assert.equal(dates.end, '2026-10-01T23:00:00');
+
+  const replaced = preferPageClockTimes('2026-10-01T08:00:00', '2026-10-01T18:00:00', html);
+  assert.equal(replaced?.start, '2026-10-01T18:00:00');
+  assert.equal(replaced?.end, '2026-10-01T23:00:00');
 
   const normalized = normalizeEventForWrite({
     temporalKind: TEMPORAL_KIND.TIMED,

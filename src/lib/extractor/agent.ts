@@ -9,7 +9,7 @@ import fetch from 'node-fetch';
 import { parse, isValid } from 'date-fns';
 import * as cheerio from 'cheerio';
 import { extractFromHtml } from './extractFromHtml';
-import { attachClockTimes, clockToHms, extractStrictDates } from './dateExtractor';
+import { clockToHms, extractStrictDates, preferPageClockTimes } from './dateExtractor';
 import { extractStrictLocation } from './locationExtractor';
 import { getRenderedHTML } from '../render';
 import { dedupeBasisString } from '../dedupe';
@@ -95,18 +95,8 @@ const parseDateToISO = (value: string | null | undefined): string | undefined =>
 };
 
 function applyPageClockTimes(event: ExtractedEvent, html: string): ExtractedEvent {
-  if (!event.start || event.start.includes('T')) return event;
-  const upgraded = attachClockTimes(
-    {
-      start: event.start,
-      end: event.end,
-      date_status: event.date_status,
-      evidence: event.evidence,
-      evidence_context: event.evidence_context,
-    },
-    html
-  );
-  if (!upgraded.start?.includes('T')) return event;
+  const upgraded = preferPageClockTimes(event.start, event.end, html);
+  if (!upgraded?.start) return event;
   return {
     ...event,
     start: upgraded.start,

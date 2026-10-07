@@ -437,6 +437,33 @@ async function testExtractorTemporalEvidenceAuthority() {
   assert.equal(multiDay.temporalKind, TEMPORAL_KIND.ALL_DAY);
   assert.equal(multiDay.date_status, 'confirmed');
   assert.equal(multiDay.evidence_context, 'visible-text');
+
+  // 7. A source-backed start clock without an end clock remains all-day.
+  const sourceStartClockOnly = await extractFixture(
+    {
+      ...baseRaw,
+      dates: { start: 'Oct 01, 2026 6:00 PM', end: 'Oct 01, 2026 10:00 PM' },
+    },
+    '<html><body><h1>Launch Party</h1><p>October 1, 2026</p><p>Doors at 6:00 PM</p></body></html>'
+  );
+  assert.equal(sourceStartClockOnly.start, '2026-10-01');
+  assert.equal(sourceStartClockOnly.end, '2026-10-01');
+  assert.equal(sourceStartClockOnly.temporalKind, TEMPORAL_KIND.ALL_DAY);
+  assert.equal(sourceStartClockOnly.date_status, 'confirmed');
+  assert.equal(sourceStartClockOnly.evidence_context, 'visible-text');
+
+  // 8. Mixed source-backed clock/date values normalize both bounds to civil dates.
+  const mixedSourceValues = await extractFixture(
+    baseRaw,
+    `<html><body><h1>Launch Party</h1>
+      <meta itemprop="startDate" content="2026-10-01T18:00:00-04:00">
+      <meta itemprop="endDate" content="2026-10-01">
+    </body></html>`
+  );
+  assert.equal(mixedSourceValues.start, '2026-10-01');
+  assert.equal(mixedSourceValues.end, '2026-10-01');
+  assert.equal(mixedSourceValues.temporalKind, TEMPORAL_KIND.ALL_DAY);
+  assert.equal(mixedSourceValues.date_status, 'confirmed');
 }
 
 function testDstBoundary() {

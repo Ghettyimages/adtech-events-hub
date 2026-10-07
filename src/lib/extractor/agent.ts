@@ -121,9 +121,10 @@ function applyPageClockTimes(event: ExtractedEvent, html: string): ExtractedEven
     };
   }
 
-  // Source-confirmed clocks remain timed; source-confirmed civil dates are all-day.
+  // Source-confirmed events are timed only when both bounds have clocks.
+  // Partial clock evidence must not retain or invent the missing counterpart.
   if (hasSourceDateEvidence(event)) {
-    const timed = hasClockTime(event.start) || hasClockTime(event.end);
+    const timed = hasClockTime(event.start) && hasClockTime(event.end);
     return {
       ...event,
       start: timed ? event.start : civilDate(event.start),

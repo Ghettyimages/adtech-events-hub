@@ -1,6 +1,6 @@
 type DatabaseEnvironment = NodeJS.ProcessEnv;
 
-function isIsolatedVercelEnvironment(environment: DatabaseEnvironment): boolean {
+export function isIsolatedDatabaseEnvironment(environment: DatabaseEnvironment = process.env): boolean {
   const targetEnvironment = environment.VERCEL_TARGET_ENV || environment.VERCEL_ENV;
   return targetEnvironment === 'preview' || targetEnvironment === 'staging';
 }
@@ -14,11 +14,16 @@ function isIsolatedVercelEnvironment(environment: DatabaseEnvironment): boolean 
 export function resolveDatabaseUrl(
   environment: DatabaseEnvironment = process.env
 ): string {
-  if (isIsolatedVercelEnvironment(environment)) {
+  if (isIsolatedDatabaseEnvironment(environment)) {
     const stagingUrl = environment.STORAGE_DATABASE_URL;
     if (!stagingUrl) {
       throw new Error(
         'STORAGE_DATABASE_URL is required for Vercel Preview and staging deployments'
+      );
+    }
+    if (environment.DATABASE_URL && stagingUrl === environment.DATABASE_URL) {
+      throw new Error(
+        'STORAGE_DATABASE_URL must not fall back to the production DATABASE_URL'
       );
     }
     return stagingUrl;

@@ -1,16 +1,19 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth-helpers';
 import { runEventWatchSource } from '@/lib/eventWatch';
+import type { CheckTrigger } from '@/lib/eventWatchLogic';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const authResult = await requireAdmin();
   if (!authResult.success) return authResult.response;
   try {
     const { id } = await params;
-    const result = await runEventWatchSource(id);
+    const body = await request.json().catch(() => ({}));
+    const trigger: CheckTrigger = body?.mode === 'full' ? 'FORCE_FULL' : 'MANUAL';
+    const result = await runEventWatchSource(id, { trigger });
     return NextResponse.json({ success: true, result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Event Watch scan failed';

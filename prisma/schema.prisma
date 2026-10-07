@@ -63,6 +63,9 @@ model Event {
   submitter   User?    @relation("SubmittedEvents", fields: [submittedBy], references: [id])
   eventWatchCandidates EventWatchCandidate[] @relation("EventWatchPendingEvent")
   eventWatchMatches    EventWatchCandidate[] @relation("EventWatchMatchedEvent")
+  eventWatchIdentities EventWatchIdentity[] @relation("WatchIdentityEvent")
+  eventWatchIdentityPending EventWatchIdentity[] @relation("WatchIdentityPending")
+  eventWatchProposals  EventWatchChangeProposal[]
 
   @@index([duplicateReviewStatus])
   @@index([temporalKind])
@@ -193,11 +196,28 @@ model MonitoredUrl {
   nextCheckAt   DateTime?
   monitoringEndsAt DateTime?
   failureCount  Int      @default(0)
+  httpEtag      String?
+  httpLastModified String?
+  processedHttpEtag String?
+  processedHttpLastModified String?
+  fetchedContentHash String?
+  processedContentHash String?
+  lastFetchedAt DateTime?
+  lastFullScanAt DateTime?
+  fullVerificationIntervalMs Int @default(604800000)
+  requiresBrowser Boolean @default(false)
+  monitorDetailPages Boolean @default(false)
+  detailPageHashes String?
+  scanClaimedAt DateTime?
+  scanClaimToken String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   scans      EventWatchScan[]
   candidates EventWatchCandidate[]
+  observations EventWatchObservation[]
+  identities EventWatchIdentity[]
+  proposals EventWatchChangeProposal[]
 
   @@index([enabled, nextCheckAt])
   @@index([enabled, monitoringEndsAt])
@@ -216,9 +236,23 @@ model EventWatchScan {
   skippedEvents      Int      @default(0)
   error              String?  @db.Text
   extractedPayload   Json?
+  trigger            String   @default("MANUAL")
+  outcome            String   @default("RUNNING")
+  fullExtractionRan  Boolean  @default(false)
+  skipReason         String?
+  changedEvents      Int      @default(0)
+  unchangedEvents    Int      @default(0)
+  baselinesEstablished Int    @default(0)
+  discrepancyCount   Int      @default(0)
+  contentHash        String?
+  httpStatus         Int?
+  summary            String?
+  historyQuality     String   @default("DETAILED")
 
   monitoredUrl MonitoredUrl         @relation(fields: [monitoredUrlId], references: [id], onDelete: Cascade)
   candidates  EventWatchCandidate[]
+  observations EventWatchObservation[]
+  proposals EventWatchChangeProposal[]
 
   @@index([monitoredUrlId, startedAt])
   @@index([status, startedAt])
@@ -243,6 +277,7 @@ model EventWatchCandidate {
   lastVerifiedAt     DateTime @default(now())
   reviewedAt         DateTime?
   reviewedBy         String?
+  historyQuality     String   @default("DETAILED")
 
   monitoredUrl MonitoredUrl  @relation(fields: [monitoredUrlId], references: [id], onDelete: Cascade)
   latestScan   EventWatchScan @relation(fields: [latestScanId], references: [id], onDelete: Cascade)
@@ -253,6 +288,87 @@ model EventWatchCandidate {
   @@index([reviewStatus, lastSeenAt])
   @@index([pendingEventId])
   @@index([matchedEventId])
+}
+
+model EventWatchObservation {
+  id                 String   @id @default(cuid())
+  scanId             String
+  monitoredUrlId     String
+  stableKey          String
+  contentFingerprint String
+  payload            Json
+  sourceUrl          String
+  evidence           String?  @db.Text
+  createdAt          DateTime @default(now())
+
+  scan         EventWatchScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  monitoredUrl MonitoredUrl   @relation(fields: [monitoredUrlId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([monitoredUrlId, stableKey, createdAt])
+}
+
+model EventWatchIdentity {
+  id                    String    @id @default(cuid())
+  monitoredUrlId        String
+  stableKey             String
+  identityKind          String
+  eventId               String?
+  pendingEventId        String?
+  baselineEstablishedAt DateTime?
+  ambiguous             Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  monitoredUrl MonitoredUrl @relation(fields: [monitoredUrlId], references: [id], onDelete: Cascade)
+  event        Event?       @relation("WatchIdentityEvent", fields: [eventId], references: [id], onDelete: SetNull)
+  pendingEvent Event?       @relation("WatchIdentityPending", fields: [pendingEventId], references: [id], onDelete: SetNull)
+
+  @@unique([monitoredUrlId, stableKey])
+  @@index([eventId])
+  @@index([pendingEventId])
+}
+
+model EventWatchChangeProposal {
+  id                     String    @id @default(cuid())
+  monitoredUrlId         String
+  scanId                 String
+  eventId                String
+  stableKey              String
+  kind                   String
+  previousValues         Json
+  proposedValues         Json
+  changedFields          Json
+  sourceUrl              String
+  evidence               String?   @db.Text
+  reviewStatus           String    @default("PENDING")
+  signature              String
+  eventUpdatedAtSnapshot DateTime
+  reviewedAt             DateTime?
+  reviewedBy             String?
+  createdAt              DateTime  @default(now())
+
+  monitoredUrl MonitoredUrl   @relation(fields: [monitoredUrlId], references: [id], onDelete: Cascade)
+  scan         EventWatchScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  event        Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, signature, reviewStatus])
+  @@index([reviewStatus, createdAt])
+  @@index([scanId])
+  @@index([monitoredUrlId, createdAt])
+}
+
+model EventWatchSchedulerRun {
+  id         String    @id @default(cuid())
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  outcome    String    @default("RUNNING")
+  sourcesDue Int       @default(0)
+  processed  Int       @default(0)
+  failed     Int       @default(0)
+  error      String?   @db.Text
+
+  @@index([startedAt])
 }
 
 model User {

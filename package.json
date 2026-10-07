@@ -15,6 +15,7 @@
     "repair:event-dates": "tsx scripts/repair-event-dates.ts",
     "repair:cannes-hub": "tsx scripts/repair-cannes-hub-dates.ts",
     "test:event-temporal": "tsx scripts/test-event-temporal.ts",
+    "test:event-watch": "tsx scripts/test-event-watch.ts",
     "seed": "tsx scripts/seed-from-csv.ts",
     "seed:tags": "tsx scripts/seed-tags.ts",
     "seed:cannes-hub": "tsx scripts/seed-cannes-hub.ts",

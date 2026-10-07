@@ -4,7 +4,6 @@
 
 import { createHash, randomUUID } from 'crypto';
 import type { Event as DbEvent } from '@prisma/client';
-import { prisma } from './db';
 import type { ExtractedEvent } from './extractor/schema';
 import { formatYmdUtc } from './eventTemporal';
 
@@ -128,6 +127,7 @@ export async function findCandidateMatch(
   event: ExtractedEvent
 ): Promise<{ existing: DbEvent; reason: MatchReason } | null> {
   if (!event.start) return null;
+  const { prisma } = await import('./db');
 
   const fp = fingerprintFromNormalizedEvent(event);
 

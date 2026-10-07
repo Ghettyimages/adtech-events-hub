@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth-helpers';
 import { prisma } from '@/lib/db';
+import { sourceWatchStatus } from '@/lib/eventWatch';
 
 const updateSchema = z.object({
   enabled: z.boolean().optional(),
@@ -17,6 +18,8 @@ const updateSchema = z.object({
   region: z.string().trim().max(100).nullable().optional(),
   topics: z.array(z.string().trim().min(1).max(80)).max(25).optional(),
   monitoringEndsAt: z.string().datetime().optional().nullable(),
+  requiresBrowser: z.boolean().optional(),
+  monitorDetailPages: z.boolean().optional(),
 });
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -50,7 +53,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         nextCheckAt,
       },
     });
-    return NextResponse.json({ source });
+    const {
+      httpEtag: _httpEtag,
+      httpLastModified: _httpLastModified,
+      processedHttpEtag: _processedHttpEtag,
+      processedHttpLastModified: _processedHttpLastModified,
+      fetchedContentHash: _fetchedContentHash,
+      processedContentHash: _processedContentHash,
+      detailPageHashes: _detailPageHashes,
+      scanClaimToken: _scanClaimToken,
+      scanClaimedAt: _scanClaimedAt,
+      ...visible
+    } = source;
+    return NextResponse.json({ source: { ...visible, watchStatus: sourceWatchStatus(source) } });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(

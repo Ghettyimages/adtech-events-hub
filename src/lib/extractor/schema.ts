@@ -15,6 +15,8 @@ export type ExtractedEvent = {
   timezone?: string;
   /** Set after normalization so a later pass does not treat all-day placeholders as clock times. */
   temporalKind?: 'ALL_DAY' | 'TIMED';
+  /** Stable id from the source, when the page exposes one. */
+  sourceEventId?: string;
   date_status: 'confirmed' | 'tbd';
   evidence?: string;
   evidence_context?: string;

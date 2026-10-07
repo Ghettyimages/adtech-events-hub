@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { MonitoredUrl } from '@prisma/client';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth-helpers';
 import { prisma } from '@/lib/db';
 import { assertSafePublicHttpUrl } from '@/lib/safeRemoteUrl';
-import { EVENT_WATCH_DEFAULT_INTERVAL_MS } from '@/lib/eventWatch';
+import { EVENT_WATCH_DEFAULT_INTERVAL_MS, sourceWatchStatus } from '@/lib/eventWatch';
 
 const createSourceSchema = z.object({
   url: z.string().url(),
@@ -21,20 +22,65 @@ const createSourceSchema = z.object({
     .default(EVENT_WATCH_DEFAULT_INTERVAL_MS),
   enabled: z.boolean().default(true),
   monitoringEndsAt: z.string().datetime().optional().nullable(),
+  requiresBrowser: z.boolean().default(false),
+  monitorDetailPages: z.boolean().default(false),
 });
 
 export async function GET() {
   const authResult = await requireAdmin();
   if (!authResult.success) return authResult.response;
 
-  const sources = await prisma.monitoredUrl.findMany({
-    orderBy: [{ enabled: 'desc' }, { createdAt: 'desc' }],
-    include: {
-      scans: { orderBy: { startedAt: 'desc' }, take: 5 },
-      _count: { select: { candidates: true, scans: true } },
-    },
+  const [sources, scheduler] = await Promise.all([
+    prisma.monitoredUrl.findMany({
+      orderBy: [{ enabled: 'desc' }, { createdAt: 'desc' }],
+      include: {
+        scans: { orderBy: { startedAt: 'desc' }, take: 8 },
+        _count: { select: { candidates: true, scans: true } },
+      },
+    }),
+    prisma.eventWatchSchedulerRun.findFirst({ orderBy: { startedAt: 'desc' } }),
+  ]);
+  return NextResponse.json({
+    sources: sources.map((source) => publicSource(source)),
+    scheduler: scheduler
+      ? {
+          startedAt: scheduler.startedAt,
+          finishedAt: scheduler.finishedAt,
+          outcome: scheduler.outcome,
+          sourcesDue: scheduler.sourcesDue,
+          processed: scheduler.processed,
+          failed: scheduler.failed,
+        }
+      : null,
   });
-  return NextResponse.json({ sources });
+}
+
+const SOURCE_PRIVATE_KEYS = [
+  'httpEtag',
+  'httpLastModified',
+  'processedHttpEtag',
+  'processedHttpLastModified',
+  'fetchedContentHash',
+  'processedContentHash',
+  'detailPageHashes',
+  'scanClaimToken',
+  'scanClaimedAt',
+] as const;
+
+function publicSource(source: MonitoredUrl & { scans?: unknown; _count?: unknown }) {
+  const visible: Record<string, unknown> = {
+    ...source,
+    watchStatus: sourceWatchStatus(source),
+  };
+  for (const key of SOURCE_PRIVATE_KEYS) delete visible[key];
+  if (Array.isArray(source.scans)) {
+    visible.scans = source.scans.map((scan) => {
+      const row = scan as Record<string, unknown>;
+      const { contentHash: _contentHash, extractedPayload: _extractedPayload, ...rest } = row;
+      return rest;
+    });
+  }
+  return visible;
 }
 
 export async function POST(request: NextRequest) {
@@ -57,10 +103,12 @@ export async function POST(request: NextRequest) {
         checkInterval: input.checkInterval,
         enabled: input.enabled,
         monitoringEndsAt: input.monitoringEndsAt ? new Date(input.monitoringEndsAt) : null,
+        requiresBrowser: input.requiresBrowser,
+        monitorDetailPages: input.monitorDetailPages,
         nextCheckAt: new Date(),
       },
     });
-    return NextResponse.json({ source }, { status: 201 });
+    return NextResponse.json({ source: publicSource(source) }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Invalid source', details: error.errors }, { status: 400 });

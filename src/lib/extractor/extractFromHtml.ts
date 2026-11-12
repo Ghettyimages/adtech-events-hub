@@ -46,9 +46,13 @@ export function extractFromHtml(html: string, baseUrl: string): RoughEventRow[] 
 
       // Look for links (event URLs)
       const link = $el.find('a').first().attr('href');
-      const absoluteUrl = link
-        ? new URL(link, baseUrl).toString()
-        : undefined;
+      let absoluteUrl: string | undefined;
+      if (link) {
+        try {
+          const resolved = new URL(link, baseUrl);
+          if (resolved.protocol === 'https:' || resolved.protocol === 'http:') absoluteUrl = resolved.toString();
+        } catch { /* A malformed link must not discard other valid event cards. */ }
+      }
 
       // Extract title (from heading, link text, or first line)
       const title =
@@ -72,7 +76,7 @@ export function extractFromHtml(html: string, baseUrl: string): RoughEventRow[] 
           date,
           location,
           url: absoluteUrl,
-          text: text.substring(0, 200), // First 200 chars
+          text, // Keep this entire bounded card so range/year evidence is not truncated
         });
       }
     });

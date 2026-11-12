@@ -17,9 +17,11 @@ import {
   decideExtractionSkip,
   decideProposalReview,
   extractRelevantContent,
+  fullVerificationDue,
   hashContent,
   isAbandonedScan,
   isDueForScheduledCheck,
+  nextCheckAtForSource,
   type BuildCheckInput,
   type CalendarEventSnapshot,
   type SourceCheckState,
@@ -570,7 +572,32 @@ function run() {
   testSkipAndFailure();
   testMatchingAndDiff();
   testReviewAndScheduling();
+  testReliabilityRegressions();
   console.log('All Event Watch tests passed.');
+}
+
+function testReliabilityRegressions() {
+  const page = (url: string, date: string) => `<main><h1>Industry Summit</h1>
+    <a href="${url}">Register</a><time datetime="${date}">Event date</time></main>`;
+  assert.notEqual(extractRelevantContent(page('/register-a', '2026-11-02')),
+    extractRelevantContent(page('/register-b', '2026-11-02')), 'URL-only changes must invalidate cache');
+  assert.notEqual(extractRelevantContent(page('/register', '2026-11-02')),
+    extractRelevantContent(page('/register', '2026-11-03')), 'Machine-readable dates must invalidate cache');
+  const jsonLd = (date: string) => `<script type="application/ld+json">${JSON.stringify({
+    '@context': 'https://schema.org', '@type': 'Event', name: 'Industry Summit', startDate: date,
+  })}</script><main>Industry Summit</main>`;
+  assert.notEqual(extractRelevantContent(jsonLd('2026-11-02')), extractRelevantContent(jsonLd('2026-11-03')));
+  assert.match(extractRelevantContent('<main><div class="event-banner"><h1>Summit 2027</h1></div></main>'), /Summit 2027/);
+  assert.equal(fullVerificationDue(source({ lastFullScanAt: new Date('2026-09-01') }), NOW), true);
+  assert.equal(fullVerificationDue(source({ lastFullScanAt: NOW }), NOW), false);
+  const stop = new Date(NOW.getTime() + 60 * 60 * 1000);
+  assert.equal(nextCheckAtForSource(source({ monitoringEndsAt: stop }), NOW, 0, false)?.getTime(), stop.getTime(),
+    'A final interval extending beyond stop time must not become due immediately');
+  const event = calendarFrom(extracted());
+  assert.equal(decideProposalReview({ action: 'approve', event, proposal: {
+    reviewStatus: 'PENDING', changedFields: ['title'], proposedValues: { title: 'Updated summit' },
+    eventUpdatedAtSnapshot: new Date(event.updatedAt.getTime() + 1),
+  }}).type, 'conflict', 'Any revision mismatch requires a refreshed review');
 }
 
 run();

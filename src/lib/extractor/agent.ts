@@ -13,6 +13,7 @@ import { extractStrictLocation } from './locationExtractor';
 import { getRenderedHTML } from '../render';
 import { dedupeBasisString } from '../dedupe';
 import { assertSafePublicHttpUrl, safePublicFetch } from '../safeRemoteUrl';
+import { verifyExtractedEvents } from '../eventEvidence';
 
 const MAX_HTML_LENGTH = 150000; // Truncate HTML while keeping majority of page content
 
@@ -38,7 +39,7 @@ Identify Event Records: An event is a single occurrence or multi-day happening w
 
 Field Definitions (confirm before extracting): Title — The event’s proper name, not the venue, organizer, or category label. Dates (Start and End) — The actual event dates, not posting dates, sales periods, or booking windows. Location (City, State abbreviation) — The physical event city and USPS two-letter state code (e.g., “Austin, TX”). If only city appears, set the state to null. If virtual/online only, set location to null. Link to event page — The canonical event detail URL (prefer the event’s dedicated page over listing hubs). Source — The site the event was found on: extract the core URL between https://www. and .com and capitalize appropriately (e.g., https://www.mediapost.com/events/2026/ → "MediaPost"). If the URL does not start with https://www., derive the registrable domain (e.g., events.mediapost.com → "MediaPost"). 
 
-Normalization Rules: Dates output in the format Mon DD, YYYY (e.g., Oct 29, 2025). If a clock time is shown, append it: Oct 01, 2026 6:00 PM. Put the end time on the end date the same way. If only one date appears, use it for both start and end. If month/day appear without year, infer from page context; if ambiguous, set the year from the nearest explicit reference on the page; if still ambiguous, set null. Location: output as a single string "City, ST" or null. Derive USPS state from full name when needed (e.g., “California” → “CA”). Do not invent cities/states. Links: absolute HTTPS URLs only. Text: trim whitespace; remove tracking query params when clearly nonessential (e.g., utm_*, fbclid). 
+Normalization Rules: Dates output in the format Mon DD, YYYY (e.g., Oct 29, 2025). If a clock time is shown, append it: Oct 01, 2026 6:00 PM. Put the end time on the end date the same way. If only one date appears, use it for both start and end. Never infer the year from the current date, footer, URL, or unrelated events. Use only an explicit year associated with this event; otherwise set dates to null. Location: output as a single string "City, ST" or null. Derive USPS state from full name when needed (e.g., “California” → “CA”). Do not invent cities/states. Links: absolute HTTPS URLs only. Text: trim whitespace; remove tracking query params when clearly nonessential (e.g., utm_*, fbclid).
 
 Disambiguation Checks (before returning any result): For each candidate event, ask yourself: Is this really the event title (not a venue or category tag)? Are these the event dates (not deadlines, door times, or sales windows)? Is this the event page (not a category, search result, or sponsor link)? Did I fully expand lazy-loaded sections and pagination? Only include the event if all answers are confidently yes. 
 
@@ -56,9 +57,9 @@ Output: Return a JSON array where each item is exactly this shape and order:
 
 "source": "MediaPost", 
 
-"description": "Two to three sentences summarizing what the event is, who it is for or which topics it covers, and format (e.g. conference, summit, webinar). Copy or paraphrase only from the page; use null if not clearly present." } ]
+"description": "Two to three sentences summarizing what the event is, who it is for or which topics it covers, and format (e.g. conference, summit, webinar). Copy a brief literal excerpt from the page; use null if not clearly present." } ]
 
-Description (no hallucination): Provide 2–3 sentences only when the page clearly states or implies them. Copy or paraphrase from visible text or meta. Do not invent speakers, agenda, or sponsors. Prefer: what the event is, who it’s for or topics, and format. Use null when not confidently available. No markdown or bullets.
+Description (no hallucination): Provide 2–3 sentences only when the page clearly states or implies them. Copy a brief literal excerpt from visible text or meta. Do not paraphrase. Do not invent speakers, agenda, or sponsors. Prefer: what the event is, who it’s for or topics, and format. Use null when not confidently available. No markdown or bullets.
 
 CRITICAL - Multi-Day Events: Many industry events span multiple days, sometimes across different months. Always capture the FULL date range:
 - Single day: { "start": "Oct 29, 2025", "end": "Oct 29, 2025" }
@@ -107,8 +108,8 @@ const hasSourceDateEvidence = (event: ExtractedEvent): boolean =>
   Boolean(event.evidence_context && event.evidence_context !== 'agent');
 
 function applyPageClockTimes(event: ExtractedEvent, html: string): ExtractedEvent {
-  // A clock range printed on the source page is authoritative over model output.
-  const upgraded = preferPageClockTimes(event.start, event.end, html);
+  // A clock range is authoritative only after dates are source-confirmed.
+  const upgraded = hasSourceDateEvidence(event) ? preferPageClockTimes(event.start, event.end, html) : null;
   if (upgraded?.start) {
     return {
       ...event,
@@ -513,7 +514,7 @@ const refineEventFromSnippet = (
   }
 
   const titleLower = event.title.toLowerCase();
-  const fallbackYear = event.start ? new Date(event.start).getUTCFullYear() : undefined;
+  const fallbackYear = undefined; // Model output cannot supply missing source years.
   let best: { score: number; refined: ExtractedEvent } | null = null;
 
   for (let i = 0; i < lines.length; i += 1) {
@@ -554,7 +555,7 @@ const refineEventFromSnippet = (
     // Scan all candidate lines for "City, ST" or "City, State" patterns
     for (const candidateLine of candidateLines) {
       if (!candidateLine) continue;
-      
+
       // Try standard location pattern: "City, ST"
       const locationMatch = candidateLine.match(/([A-Z][A-Za-z&'\.\-]+(?:\s+[A-Z][A-Za-z&'\.\-]+)*),\s*([A-Z]{2})\b/);
       if (locationMatch) {
@@ -563,7 +564,7 @@ const refineEventFromSnippet = (
         locationCandidate = `${city}, ${state}`;
         break;
       }
-      
+
       // Try spelled state: "City, State"
       const spelledMatch = candidateLine.match(/([A-Z][A-Za-z&'\.\-]+(?:\s+[A-Z][A-Za-z&'\.\-]+)*),\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/);
       if (spelledMatch) {
@@ -890,7 +891,7 @@ const parseDateMatch = (
   // Validate dates
   const startDate = new Date(startIso);
   const endDate = new Date(endIso);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || startDate.toISOString().slice(0, 10) !== startIso || endDate.toISOString().slice(0, 10) !== endIso || endIso < startIso) {
     return null;
   }
 
@@ -918,7 +919,7 @@ const parseCrossMonthDateMatch = (
   const endYearPart = match[6] ? parseInt(match[6], 10) : undefined;
 
   // Determine years - use explicit years if provided, otherwise fallback
-  const startYear = startYearPart ?? endYearPart ?? fallbackYear;
+  let startYear = startYearPart ?? endYearPart ?? fallbackYear;
   let endYear = endYearPart ?? startYearPart ?? fallbackYear;
 
   if (!startMonthName || !endMonthName || !startYear || Number.isNaN(startDay) || Number.isNaN(endDay)) {
@@ -939,7 +940,9 @@ const parseCrossMonthDateMatch = (
 
   // Handle year rollover (e.g., December 28 - January 3)
   if (endMonthIndex < startMonthIndex && !endYearPart) {
-    endYear = (startYear ?? fallbackYear ?? new Date().getFullYear()) + 1;
+    endYear = startYear + 1;
+  } else if (endMonthIndex < startMonthIndex && endYearPart && !startYearPart) {
+    startYear = endYearPart - 1;
   }
 
   if (!endYear) {
@@ -952,7 +955,7 @@ const parseCrossMonthDateMatch = (
   // Validate dates
   const startDate = new Date(startIso);
   const endDate = new Date(endIso);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || startDate.toISOString().slice(0, 10) !== startIso || endDate.toISOString().slice(0, 10) !== endIso || endIso < startIso) {
     return null;
   }
 
@@ -975,7 +978,7 @@ const findBestDate = (
   titleIndex: number,
   fallbackIso?: string
 ): { startIso: string; endIso: string; evidence: string } | null => {
-  const fallbackYear = fallbackIso ? new Date(fallbackIso).getUTCFullYear() : undefined;
+  const fallbackYear = undefined; // Require an explicit year in source date text.
 
   // Try cross-month date patterns FIRST (e.g., "October 29 - November 2, 2025")
   const crossMonthMatches: Array<{ match: RegExpExecArray; distance: number }> = [];
@@ -1147,7 +1150,7 @@ const verifyWithContext = (
 
   const directCandidates = findElementHtmlCandidatesForTitle(dom, event.title, keywords, expectedYear);
   if (directCandidates.length > 0) {
-    let bestDirect: { refined: ExtractedEvent; score: number } | null = null;
+    let bestDirect: { refined: ExtractedEvent; score: number; html: string } | null = null;
     for (const candidate of directCandidates) {
       const refined = refineEventFromSnippet(event, candidate.html, keywords);
       if (!refined) continue;
@@ -1165,11 +1168,11 @@ const verifyWithContext = (
         score += 10;
       }
       if (bestDirect == null || score < bestDirect.score) {
-        bestDirect = { refined, score };
+        bestDirect = { refined, score, html: candidate.html };
       }
     }
     if (bestDirect) {
-      return applyPageClockTimes(bestDirect.refined, html);
+      return applyPageClockTimes(bestDirect.refined, bestDirect.html);
     }
   }
 
@@ -1196,28 +1199,8 @@ const verifyWithContext = (
       location_evidence_context: verifiedLocationStatus === 'tbd' ? undefined : event.location_evidence_context,
     };
 
-    if (event.description?.trim()) {
-      const descHtml = wrapTextAsHtml(event.description);
-      const strictDates = extractStrictDates(descHtml);
-      if (strictDates.date_status === 'confirmed' && strictDates.start) {
-        noContextResult.start = strictDates.start;
-        noContextResult.end = strictDates.end ?? strictDates.start;
-        noContextResult.date_status = 'confirmed';
-        noContextResult.evidence = strictDates.evidence ?? sanitizeEvidenceText(event.description);
-        noContextResult.evidence_context = 'description';
-      }
-      if (noContextResult.location_status === 'tbd') {
-        const strictLoc = extractStrictLocation(descHtml, event.url);
-        if (strictLoc.location_status === 'confirmed' && strictLoc.location) {
-          noContextResult.location = strictLoc.location;
-          noContextResult.location_status = 'confirmed';
-          noContextResult.location_evidence = strictLoc.location_evidence ?? sanitizeEvidenceText(event.description);
-          noContextResult.location_evidence_context = 'description';
-        }
-      }
-    }
 
-    return applyPageClockTimes(noContextResult, html);
+    return applyPageClockTimes(noContextResult, "");
   }
 
   if (process.env.DEBUG_EXTRACTOR === '1') {
@@ -1234,7 +1217,7 @@ const verifyWithContext = (
     if (refinedFromSnippet.location && refinedFromSnippet.location_status === 'confirmed') {
       // eslint-disable-next-line no-console
       console.log('[extractor] Returning early with refined snippet location');
-      return applyPageClockTimes(refinedFromSnippet, html);
+      return applyPageClockTimes(refinedFromSnippet, context.snippetHtml);
     }
     // If refineEventFromSnippet found dates but no location, merge with location verification below
     useRefinedSnippet = true;
@@ -1256,20 +1239,10 @@ const verifyWithContext = (
         endIso: strict.end ?? strict.start,
         evidence: strict.evidence ?? collapseWhitespace(stripHtml(snippetHtml)).slice(0, 120),
       };
+      dateInfoEvidenceContext = strict.evidence_context ?? 'visible-text';
     }
   }
 
-  if (!dateInfo && event.description?.trim()) {
-    const strictFromDesc = extractStrictDates(wrapTextAsHtml(event.description));
-    if (strictFromDesc.date_status === 'confirmed' && strictFromDesc.start) {
-      dateInfo = {
-        startIso: strictFromDesc.start,
-        endIso: strictFromDesc.end ?? strictFromDesc.start,
-        evidence: strictFromDesc.evidence ?? sanitizeEvidenceText(event.description),
-      };
-      dateInfoEvidenceContext = 'description';
-    }
-  }
 
   // Use strict location extractor (similar to dates)
   // Try both snippet HTML and full HTML for better coverage
@@ -1340,39 +1313,39 @@ const verifyWithContext = (
   if (event.location) {
     const eventLocationLower = event.location.toLowerCase().trim();
     const htmlLower = html.toLowerCase();
-    
+
     // eslint-disable-next-line no-console
     console.log('[extractor] Verifying LLM location', event.location, 'in HTML (length:', html.length, ')');
-    
+
     // Check if the LLM-extracted location appears in the HTML
     // Use flexible matching: check for city, state separately, and full location
     const locationParts = eventLocationLower.split(',').map(p => p.trim()).filter(Boolean);
     const city = locationParts[0] || '';
     const state = locationParts[1] || '';
-    
+
     // Check for full location match (exact)
     const fullLocationMatch = htmlLower.includes(eventLocationLower);
-    
+
     // Check for city, state pattern (e.g., "City, ST" or "City, State")
     // This handles cases where venue names precede the location
     const cityStatePattern = city && state ? 
       new RegExp(`\\b${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^,]*,\\s*${state.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') :
       null;
     const cityStatePatternMatch = cityStatePattern ? cityStatePattern.test(htmlLower) : false;
-    
+
     // Check for city + state separately (more flexible) - they can be anywhere in the HTML
     const cityStateMatch = city && state && 
       htmlLower.includes(city) && 
       (htmlLower.includes(`, ${state}`) || htmlLower.includes(` ${state}`) || htmlLower.includes(`(${state})`));
-    
+
     // Check for partial matches (city only with state abbreviation nearby)
     // Look for city followed by state within reasonable distance (e.g., "City, ST" or "City (ST)")
     const cityStateNearby = city && state && state.length === 2 ? 
       new RegExp(`${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^,]{0,50},?\\s*${state.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(htmlLower) :
       false;
-    
+
     const locationInHtml = fullLocationMatch || cityStatePatternMatch || cityStateMatch || cityStateNearby;
-    
+
     // eslint-disable-next-line no-console
     console.log('[extractor] Location match results', {
       location: event.location,
@@ -1384,12 +1357,12 @@ const verifyWithContext = (
       city,
       state,
     });
-    
+
     // Also check if strict extractor found a matching location
     const strictLocationSnippet = snippetHtml ? extractStrictLocation(snippetHtml, event.url) : null;
     const strictLocationFull = extractStrictLocation(html, event.url);
     const strictLocation = strictLocationSnippet?.location_status === 'confirmed' ? strictLocationSnippet : strictLocationFull;
-    
+
     if (process.env.DEBUG_EXTRACTOR === '1') {
       // eslint-disable-next-line no-console
       console.debug('[extractor] Strict location extractor results', {
@@ -1398,15 +1371,15 @@ const verifyWithContext = (
         chosen: strictLocation?.location,
       });
     }
-    
+
     const strictMatch = strictLocation?.location_status === 'confirmed' && 
       strictLocation.location?.toLowerCase().trim() === eventLocationLower;
-    
+
     // Also check for partial match with strict extractor (city matches)
     const strictPartialMatch = strictLocation?.location_status === 'confirmed' && 
       strictLocation.location && city &&
       strictLocation.location.toLowerCase().includes(city);
-    
+
     if (!locationInHtml && !strictMatch && !strictPartialMatch) {
       // LLM hallucinated location - mark as TBD
       if (process.env.DEBUG_EXTRACTOR === '1') {
@@ -1460,46 +1433,13 @@ const verifyWithContext = (
 
   // Override dates with dateInfo if available (from strict extractor or findBestDate)
   if (dateInfo) {
-    // Check if LLM detected a multi-day event but regex collapsed it to single-day
-    const llmStartDate = event.start ? new Date(event.start) : null;
-    const llmEndDate = event.end ? new Date(event.end) : null;
-    const regexStartDate = new Date(dateInfo.startIso);
-    const regexEndDate = new Date(dateInfo.endIso);
-    
-    const llmIsMultiDay = llmStartDate && llmEndDate && 
-      llmEndDate.getTime() > llmStartDate.getTime() + (24 * 60 * 60 * 1000);
-    const regexIsSingleDay = dateInfo.startIso === dateInfo.endIso || 
-      (regexEndDate.getTime() - regexStartDate.getTime()) < (24 * 60 * 60 * 1000);
-    
-    // Also check if the LLM start date matches (or is very close to) the regex start date
-    const startDatesMatch = llmStartDate && 
-      Math.abs(llmStartDate.getTime() - regexStartDate.getTime()) < (2 * 24 * 60 * 60 * 1000); // within 2 days
-    
-    if (llmIsMultiDay && regexIsSingleDay && startDatesMatch) {
-      // Preserve LLM's end date, but use regex start date (regex is usually more accurate for start)
-      if (process.env.DEBUG_EXTRACTOR === '1') {
-        // eslint-disable-next-line no-console
-        console.debug('[extractor] Preserving LLM multi-day end date', {
-          llmStart: event.start,
-          llmEnd: event.end,
-          regexStart: dateInfo.startIso,
-          regexEnd: dateInfo.endIso,
-        });
-      }
-      next.start = dateInfo.startIso;
-      // Preserve only the LLM's end civil date. Its clock has no source evidence.
-      next.end = civilDate(event.end) ?? dateInfo.endIso;
-      next.evidence = `${dateInfo.evidence} (multi-day event)`;
-      next.evidence_context = dateInfoEvidenceContext;
-      next.date_status = 'confirmed';
-    } else {
-      // Normal case: use regex dates
-      next.start = dateInfo.startIso;
-      next.end = dateInfo.endIso;
-      next.evidence = dateInfo.evidence;
-      next.evidence_context = dateInfoEvidenceContext;
-      next.date_status = 'confirmed';
-    }
+    // Only the source range may establish either endpoint. A model end date
+    // cannot be promoted to confirmed just because its start is near evidence.
+    next.start = dateInfo.startIso;
+    next.end = dateInfo.endIso;
+    next.evidence = dateInfo.evidence;
+    next.evidence_context = dateInfoEvidenceContext;
+    next.date_status = 'confirmed';
   } else if (!useRefinedSnippet) {
     if (event.start) {
       // HTML date verification inconclusive — keep agent dates so ingest/normalize can proceed
@@ -1539,7 +1479,7 @@ const verifyWithContext = (
     next.location_evidence_context = undefined;
   }
 
-  return applyPageClockTimes(next, html);
+  return applyPageClockTimes(next, context.snippetHtml);
 };
 
 const ensureDateEvidence = (
@@ -1587,7 +1527,7 @@ export async function extractEventsFromUrl(
   url: string,
   hint?: string,
   overrideHtml?: string
-): Promise<{ events: ExtractedEvent[] }> {
+): Promise<{ events: ExtractedEvent[]; rejectedEvents?: number; verificationWarnings?: Array<{ title: string; reasons: string[] }>; verificationIssues?: Array<{ title: string; reasons: string[] }> }> {
   try {
     await assertSafePublicHttpUrl(url);
     let finalUrl = url;
@@ -1655,8 +1595,14 @@ ${JSON.stringify(roughRows.slice(0, 25), null, 2)}`
     }
 
     const mappedEvents = mapAgentEvents(rawEvents ?? [], finalUrl);
-    const events = ensureDateEvidence(mappedEvents, html, dom);
-    return { events };
+    const verified = verifyExtractedEvents(ensureDateEvidence(mappedEvents, html, dom), html, finalUrl);
+    const events = verified.events;
+    return {
+      events,
+      rejectedEvents: verified.rejected.length,
+      verificationWarnings: verified.warnings,
+      verificationIssues: verified.rejected.map(({ event, reasons }) => ({ title: event.title, reasons })),
+    };
   } catch (error: any) {
     throw new Error(`Failed to extract events from ${url}: ${error.message}`);
   }

@@ -6,11 +6,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const authResult = await requireAdmin();
   if (!authResult.success) return authResult.response;
   const { id } = await params;
-  const take = Math.min(Number(request.nextUrl.searchParams.get('take') || 10), 25);
+  const requested = Number(request.nextUrl.searchParams.get('take') || 10);
+  const take = Number.isFinite(requested) ? Math.max(1, Math.min(Math.floor(requested), 25)) : 10;
   const cursor = request.nextUrl.searchParams.get('cursor');
   const scans = await prisma.eventWatchScan.findMany({
     where: { monitoredUrlId: id },
-    orderBy: { startedAt: 'desc' },
+    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
     take: take + 1,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     select: {

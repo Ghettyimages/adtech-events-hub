@@ -4,7 +4,7 @@
  */
 
 import * as cheerio from 'cheerio';
-import { parse, isValid } from 'date-fns';
+import { DateTime } from 'luxon';
 
 export type StrictDateStatus = 'confirmed' | 'tbd';
 
@@ -37,7 +37,7 @@ const MONTH_PATTERN = new RegExp(
 );
 
 const DATE_PATTERN = new RegExp(
-  `\\b(${MONTH_NAMES.map((m) => `${m.slice(0, 3)}(?:${m.slice(3)})?`).join('|')})\\s+(\\d{1,2})(?:\\s*(?:-|–|to)\\s*(\\d{1,2}))?(?:\\s*\\([^)]+\\))?(?:,\\s*(\\d{4}))?`,
+  `\\b(${MONTH_NAMES.map((m) => `${m.slice(0, 3)}(?:${m.slice(3)})?`).join('|')})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*(?:-|–|—|to)\\s*(\\d{1,2}))?(?:\\s*\\([^)]+\\))?(?:,?\\s+(\\d{4}))?`,
   'gi'
 );
 
@@ -63,24 +63,31 @@ const sanitizeEvidence = (text: string): string => text.replace(/\s+/g, ' ').tri
  * Normalize a date to date-only format (YYYY-MM-DD) if it's a date-only value
  * This allows normalization to properly detect all-day events
  */
-const normalizeDateToDateOnly = (dateString: string): string => {
-  const date = new Date(dateString);
-  
-  // Check if the date string is date-only (YYYY-MM-DD format)
-  // or if the time component is midnight (00:00:00)
-  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(dateString) || 
-                     /^\d{4}-\d{2}-\d{2}T00:00:00/.test(dateString);
-  
-  if (isDateOnly || (date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0)) {
-    // Return date-only format (YYYY-MM-DD) for all-day events
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+const normalizeDateToDateOnly = (value: string): string => {
+  if (typeof value !== 'string') throw new Error('Expected an ISO date string');
+  const dateString = value.trim();
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(dateString);
+  const dt = DateTime.fromISO(dateString, { zone: 'utc', setZone: true });
+  if (!dt.isValid) throw new Error(`Invalid source date: ${value}`);
+  // An explicit midnight is still a clock time, including offsets. Do not turn
+  // midnight +14:00 into the previous civil day or a fabricated all-day event.
+  if (dateOnly) return dateString;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(dateString)) {
+    throw new Error(`Unsupported source date: ${value}`);
   }
-  
-  // Preserve existing time as ISO string
-  return date.toISOString();
+  return dateString;
+};
+
+const validCivilDate = (value: string): boolean => {
+  const dt = DateTime.fromISO(value, { zone: 'utc' });
+  return dt.isValid && dt.toISODate() === value;
+};
+
+const validSourceRange = (start: string, end: string): boolean => {
+  const startDt = DateTime.fromISO(start, { zone: 'utc', setZone: true });
+  const endDt = DateTime.fromISO(end, { zone: 'utc', setZone: true });
+  if (!startDt.isValid || !endDt.isValid) return false;
+  return endDt.toMillis() >= startDt.toMillis();
 };
 
 const parseDateMatch = (
@@ -115,7 +122,7 @@ const parseDateMatch = (
   // Validate dates
   const startDate = new Date(startIso);
   const endDate = new Date(endIso);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  if (!validCivilDate(startIso) || !validCivilDate(endIso) || endIso < startIso) {
     return null;
   }
 
@@ -143,7 +150,7 @@ const parseCrossMonthDateMatch = (
   const endYearPart = match[6] ? parseInt(match[6], 10) : undefined;
 
   // Determine years - use explicit years if provided, otherwise fallback
-  const startYear = startYearPart ?? endYearPart ?? fallbackYear;
+  let startYear = startYearPart ?? endYearPart ?? fallbackYear;
   let endYear = endYearPart ?? startYearPart ?? fallbackYear;
 
   if (!startMonthName || !endMonthName || !startYear || Number.isNaN(startDay) || Number.isNaN(endDay)) {
@@ -164,7 +171,9 @@ const parseCrossMonthDateMatch = (
 
   // Handle year rollover (e.g., December 28 - January 3)
   if (endMonthIndex < startMonthIndex && !endYearPart) {
-    endYear = (startYear ?? fallbackYear ?? new Date().getFullYear()) + 1;
+    endYear = startYear + 1;
+  } else if (endMonthIndex < startMonthIndex && endYearPart && !startYearPart) {
+    startYear = endYearPart - 1;
   }
 
   if (!endYear) {
@@ -177,7 +186,7 @@ const parseCrossMonthDateMatch = (
   // Validate dates
   const startDate = new Date(startIso);
   const endDate = new Date(endIso);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  if (!validCivilDate(startIso) || !validCivilDate(endIso) || endIso < startIso) {
     return null;
   }
 
@@ -199,11 +208,17 @@ const fromJsonLd = (html: string): StrictDateResult | null => {
   const $ = cheerio.load(html);
   const scripts = $('script[type="application/ld+json"]');
 
+  const candidates: StrictDateResult[] = [];
   for (let i = 0; i < scripts.length; i += 1) {
     const script = scripts.eq(i).text();
     try {
       const json = JSON.parse(script);
-      const items = Array.isArray(json) ? json : [json];
+      const flatten = (value: any): any[] => {
+        if (Array.isArray(value)) return value.flatMap(flatten);
+        if (!value || typeof value !== 'object') return [];
+        return [value, ...flatten(value['@graph']), ...flatten(value.itemListElement), ...flatten(value.item)];
+      };
+      const items = flatten(json);
       for (const item of items) {
         if (!item || typeof item !== 'object') continue;
         const type = item['@type'];
@@ -221,15 +236,15 @@ const fromJsonLd = (html: string): StrictDateResult | null => {
 
             // Validate that we got a valid date string
             const startDateObj = new Date(start);
-            if (!isNaN(startDateObj.getTime())) {
+            if (!isNaN(startDateObj.getTime()) && validSourceRange(start, end)) {
               logDebug('JSON-LD dates found', { start, end });
-              return {
+              candidates.push({
                 start,
                 end,
-                date_status: 'confirmed',
+                date_status: endDate || !start.includes('T') ? 'confirmed' : 'tbd',
                 evidence: sanitizeEvidence(`${startDate}${endDate ? ` to ${endDate}` : ''}`),
                 evidence_context: 'json-ld',
-              };
+              });
             }
           } catch (error) {
             logDebug('Failed to parse JSON-LD dates', error);
@@ -240,7 +255,8 @@ const fromJsonLd = (html: string): StrictDateResult | null => {
       logDebug('Failed to parse JSON-LD for dates', error);
     }
   }
-  return null;
+  const distinct = new Map(candidates.map((c) => [`${c.start}|${c.end}`, c]));
+  return distinct.size === 1 ? [...distinct.values()][0] : null;
 };
 
 const fromMetaTags = (html: string): StrictDateResult | null => {
@@ -277,12 +293,12 @@ const fromMetaTags = (html: string): StrictDateResult | null => {
 
       // Validate that we got a valid date string
       const startDateObj = new Date(start);
-      if (!isNaN(startDateObj.getTime())) {
+      if (!isNaN(startDateObj.getTime()) && validSourceRange(start, end)) {
         logDebug('Meta tag dates found', { start, end });
         return {
           start,
           end,
-          date_status: 'confirmed',
+          date_status: endDate || !start.includes('T') ? 'confirmed' : 'tbd',
           evidence: sanitizeEvidence(`${startDate}${endDate ? ` to ${endDate}` : ''}`),
           evidence_context: 'meta-tags',
         };
@@ -297,66 +313,42 @@ const fromMetaTags = (html: string): StrictDateResult | null => {
 
 const fromVisibleText = (html: string): StrictDateResult | null => {
   const $ = cheerio.load(html);
+  $('script, style, nav, footer').remove();
+  $('h1,h2,h3,h4,h5,h6,p,div,li,section,article,br').each((_, node) => { $(node).prepend(' '); $(node).append(' '); });
   const bodyText = $('body').text();
-
-  // Try to find current year from context
-  const currentYear = new Date().getFullYear();
-  const yearMatch = bodyText.match(/\b(20\d{2})\b/);
-  const fallbackYear = yearMatch ? parseInt(yearMatch[1], 10) : currentYear;
-
-  // Try cross-month date patterns FIRST (e.g., "October 29 - November 2, 2025")
+  const candidates: StrictDateResult[] = [];
+  const nonEventDate = (index: number): boolean => {
+    const prefix = bodyText.slice(Math.max(0, index - 100), index);
+    return /(?:registration\s+(?:deadline|closes?|ends?)|register\s+by|early[ -]bird(?:\s+(?:ends?|deadline))?|ticket\s+sales?\s+(?:ends?|opens?)|(?:posted|published|updated)\s+(?:on\s*)?|booking\s+(?:deadline|closes?)|sale\s+ends?)\s*[:—–-]?\s*$/i.test(prefix);
+  };
+  const covered: Array<[number, number]> = [];
+  // Require years in actual date expressions. Footer/current/model years cannot
+  // supply evidence. Different source ranges require event-scoped resolution.
   CROSS_MONTH_DATE_PATTERN.lastIndex = 0;
-  const crossMonthMatches: Array<{ match: RegExpExecArray; index: number }> = [];
-  let crossExec: RegExpExecArray | null;
-
-  while ((crossExec = CROSS_MONTH_DATE_PATTERN.exec(bodyText)) !== null) {
-    crossMonthMatches.push({ match: crossExec, index: crossExec.index });
+  let match: RegExpExecArray | null;
+  while ((match = CROSS_MONTH_DATE_PATTERN.exec(bodyText)) !== null) {
+    if (nonEventDate(match.index)) continue;
+    const parsed = parseCrossMonthDateMatch(match);
+    if (!parsed) continue;
+    covered.push([match.index, match.index + match[0].length]);
+    candidates.push({ start: parsed.startIso, end: parsed.endIso, date_status: 'confirmed', evidence: parsed.evidence, evidence_context: 'visible-text' });
   }
-
-  // Try to parse cross-month date matches first
-  for (const { match } of crossMonthMatches) {
-    const parsed = parseCrossMonthDateMatch(match, fallbackYear);
-    if (parsed) {
-      logDebug('Cross-month visible text date found', { start: parsed.startIso, end: parsed.endIso });
-      return {
-        start: parsed.startIso,
-        end: parsed.endIso,
-        date_status: 'confirmed',
-        evidence: parsed.evidence,
-        evidence_context: 'visible-text',
-      };
-    }
-  }
-
-  // Fallback to single-month date patterns
   DATE_PATTERN.lastIndex = 0;
-  const matches: Array<{ match: RegExpExecArray; index: number }> = [];
-  let exec: RegExpExecArray | null;
-
-  while ((exec = DATE_PATTERN.exec(bodyText)) !== null) {
-    matches.push({ match: exec, index: exec.index });
+  while ((match = DATE_PATTERN.exec(bodyText)) !== null) {
+    if (covered.some(([start, end]) => match!.index >= start && match!.index < end)) continue;
+    if (nonEventDate(match.index)) continue;
+    const parsed = parseDateMatch(match);
+    if (!parsed) continue;
+    candidates.push({ start: parsed.startIso, end: parsed.endIso, date_status: 'confirmed', evidence: parsed.evidence, evidence_context: 'visible-text' });
   }
-
-  if (matches.length === 0) {
-    return null;
+  const numeric = /\b(\d{1,2})\s*[/.]\s*(\d{1,2})\s*[/.]\s*(\d{4})\b/g;
+  while ((match = numeric.exec(bodyText)) !== null) {
+    if (nonEventDate(match.index)) continue;
+    const ymd = `${match[3]}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
+    if (validCivilDate(ymd)) candidates.push({ start: ymd, end: ymd, date_status: 'confirmed', evidence: match[0], evidence_context: 'visible-text' });
   }
-
-  // Try to parse the first valid date match
-  for (const { match } of matches) {
-    const parsed = parseDateMatch(match, fallbackYear);
-    if (parsed) {
-      logDebug('Visible text date found', { start: parsed.startIso, end: parsed.endIso });
-      return {
-        start: parsed.startIso,
-        end: parsed.endIso,
-        date_status: 'confirmed',
-        evidence: parsed.evidence,
-        evidence_context: 'visible-text',
-      };
-    }
-  }
-
-  return null;
+  const distinct = new Map(candidates.map((c) => [`${c.start}|${c.end}`, c]));
+  return distinct.size === 1 ? [...distinct.values()][0] : null;
 };
 
 /**
@@ -429,28 +421,6 @@ export function findTimeRangeForYmd(
     if (range) return { ...range, evidence: named[0].replace(/\s+/g, ' ').trim() };
   }
 
-  const pipe = new RegExp(
-    String.raw`(?:^|\D)${monthToken}\s*[\/.]\s*${dayToken}(?:\s*[\/.]\s*${yearToken})?\s*\|\s*(\d{1,2})(?::(\d{2}))?\s*([ap]m)`,
-    'i'
-  ).exec(collapsed);
-  if (pipe) {
-    const startHms = clockToHms(parseInt(pipe[1], 10), parseInt(pipe[2] || '0', 10), pipe[3]);
-    const rangeRe = new RegExp(TIME_RANGE_SRC, 'gi');
-    let rangeMatch: RegExpExecArray | null;
-    while ((rangeMatch = rangeRe.exec(collapsed)) !== null) {
-      const range = rangeFromGroups(
-        rangeMatch[1],
-        rangeMatch[2],
-        rangeMatch[3],
-        rangeMatch[4],
-        rangeMatch[5],
-        rangeMatch[6]
-      );
-      if (range?.start === startHms) {
-        return { ...range, evidence: `${pipe[0].trim()} (${rangeMatch[0]})` };
-      }
-    }
-  }
 
   return null;
 }
@@ -490,7 +460,11 @@ export function attachClockTimes(result: StrictDateResult, html: string): Strict
   const ymd = result.start.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return result;
 
-  const text = cheerio.load(html)('body').text();
+  if (result.end && result.end.slice(0, 10) !== ymd) return result;
+  const $ = cheerio.load(html);
+  $('script, style, nav, footer').remove();
+  $('h1,h2,h3,h4,h5,h6,p,div,li,section,article,br').each((_, node) => { $(node).prepend(' ').append(' '); });
+  const text = $('body').text();
   const range = findTimeRangeForYmd(text, ymd);
   if (!range) return result;
 

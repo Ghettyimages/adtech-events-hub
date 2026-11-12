@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { formatEventDateForDisplay } from '@/lib/events';
+import { formatCheckTimestamp, schedulerHealth } from '@/lib/eventWatchDisplay';
 
 type Scan = {
   id: string;
@@ -107,12 +108,7 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 function formatDate(value: string | null): string {
-  if (!value) return 'Never';
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZoneName: 'short',
-  }).format(new Date(value));
+  return formatCheckTimestamp(value);
 }
 
 function formatDateOnly(value: string | null): string {
@@ -139,6 +135,8 @@ function monitoringEnded(source: Source): boolean {
 
 function statusLabel(source: Source): string {
   if (source.watchStatus === 'checking') return 'Checking';
+  if (source.watchStatus === 'failed') return 'Check failed';
+  if (source.watchStatus === 'incomplete') return 'Could not verify';
   if (source.watchStatus === 'overdue') return 'Overdue';
   if (monitoringEnded(source) || source.watchStatus === 'ended') return 'Monitoring ended';
   if (!source.enabled || source.watchStatus === 'disabled') return 'Disabled';
@@ -191,6 +189,16 @@ export default function AdminEventWatchPanel() {
         ]);
         const refreshedSources: Source[] = sourcesData.sources || [];
         setSources(refreshedSources);
+        setHistoryBySource((current) => {
+          const next = { ...current };
+          for (const source of refreshedSources) {
+            if (!next[source.id]) continue;
+            const merged = new Map(next[source.id].map((scan) => [scan.id, scan]));
+            for (const scan of source.scans) merged.set(scan.id, scan);
+            next[source.id] = [...merged.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+          }
+          return next;
+        });
         setScheduler(sourcesData.scheduler || null);
         setMonitoringEndDrafts((current) => {
           const next = { ...current };
@@ -336,10 +344,19 @@ export default function AdminEventWatchPanel() {
       });
       return;
     }
-    const response = await fetch(`/api/admin/event-watch/scans/${scanId}`);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Unable to open check');
-    setOpenChecks((current) => ({ ...current, [scanId]: data.scan }));
+    try {
+      const response = await fetch(`/api/admin/event-watch/scans/${scanId}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to open check');
+      setOpenChecks((current) => ({ ...current, [scanId]: data.scan }));
+    } catch (error) {
+      setOpenChecks((current) => {
+        const next = { ...current };
+        delete next[scanId];
+        return next;
+      });
+      throw error;
+    }
   }
 
   async function reviewCandidate(candidate: Candidate, action: 'approve' | 'reject') {
@@ -523,8 +540,9 @@ export default function AdminEventWatchPanel() {
 
   const activeSources = sources.filter((source) => source.enabled && !monitoringEnded(source));
   const inactiveSources = sources.filter((source) => !source.enabled || monitoringEnded(source));
-  const schedulerStale =
-    !scheduler || Date.now() - new Date(scheduler.startedAt).getTime() > 7 * 60 * 60 * 1000;
+  const schedulerMessage = schedulerHealth(scheduler);
+  const schedulerStale = !scheduler || !scheduler.finishedAt || scheduler.outcome !== 'SUCCESS' ||
+    Date.now() - new Date(scheduler.startedAt).getTime() > 7 * 60 * 60 * 1000;
 
   return (
     <div className="space-y-8">
@@ -536,7 +554,7 @@ export default function AdminEventWatchPanel() {
         </p>
         <p className={`mt-2 text-sm ${schedulerStale ? 'text-amber-700' : 'text-gray-600'}`}>
           {scheduler
-            ? `Scheduler last ran ${formatDate(scheduler.startedAt)}.${schedulerStale ? ' It has not run recently.' : ''}`
+            ? `Scheduler last ran ${formatDate(scheduler.startedAt)}. ${schedulerMessage}`
             : 'Scheduled checks have not run yet.'}
         </p>
       </div>
@@ -692,7 +710,7 @@ export default function AdminEventWatchPanel() {
                   <h4 className="text-lg font-semibold text-gray-900 dark:text-white">{event?.title || 'Stored event candidate'}</h4>
                   <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                     {candidate.matchStatus === 'AMBIGUOUS'
-                      ? 'This may match more than one event. It was not merged automatically.'
+                      ? 'This may match more than one event. Resolve the match in the event editor before publishing.'
                       : 'New event'}{' '}
                     · {candidate.reviewStatus.toLowerCase()}
                     {candidate.historyQuality === 'LEGACY' ? ' · Earlier discovery. Field-level history was not recorded.' : ''}
@@ -707,7 +725,7 @@ export default function AdminEventWatchPanel() {
                   </a>
                   {candidate.reviewStatus === 'PENDING' && (
                     <div className="mt-4 flex gap-2">
-                      <button disabled={busyId === candidate.id} onClick={() => void reviewCandidate(candidate, 'approve')} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
+                      <button disabled={busyId === candidate.id || candidate.matchStatus === 'AMBIGUOUS'} onClick={() => void reviewCandidate(candidate, 'approve')} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
                         Approve
                       </button>
                       <button disabled={busyId === candidate.id} onClick={() => void reviewCandidate(candidate, 'reject')} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">

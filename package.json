@@ -19,7 +19,8 @@
     "seed": "tsx scripts/seed-from-csv.ts",
     "seed:tags": "tsx scripts/seed-tags.ts",
     "seed:cannes-hub": "tsx scripts/seed-cannes-hub.ts",
-    "fix:cannes-upload": "tsx scripts/fix-cannes-upload-csv.ts"
+    "fix:cannes-upload": "tsx scripts/fix-cannes-upload-csv.ts",
+    "test:event-watch:trust": "node --import tsx scripts/test-event-temporal.ts && node --import tsx scripts/test-date-evidence.ts && node --import tsx scripts/test-event-evidence.ts && node --import tsx scripts/test-event-watch.ts && node --import tsx scripts/test-event-watch-edition.ts && node --import tsx scripts/test-schedule-evidence.ts && node --import tsx scripts/test-event-watch-display.ts && node --import tsx scripts/test-scrape-verification.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",

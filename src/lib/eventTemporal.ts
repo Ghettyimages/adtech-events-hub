@@ -204,8 +204,10 @@ export function formatYmdUtc(d: Date): string {
 }
 
 export function parseYmdToUtcDate(ymd: string): Date {
-  const [y, m, d] = ymd.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) throw new Error(`Invalid civil date: ${ymd}`);
+  const dt = DateTime.fromISO(ymd, { zone: 'utc' });
+  if (!dt.isValid || dt.toISODate() !== ymd) throw new Error(`Invalid civil date: ${ymd}`);
+  return dt.toJSDate();
 }
 
 export function civilDateFromUtcInstant(d: Date): Date {
@@ -216,6 +218,8 @@ export function allDayInstantsFromCivilDates(startYmd: string, endYmdInclusive: 
   start: Date;
   end: Date;
 } {
+  parseYmdToUtcDate(startYmd);
+  parseYmdToUtcDate(endYmdInclusive);
   const [sy, sm, sd] = startYmd.split('-').map(Number);
   const [ey, em, ed] = endYmdInclusive.split('-').map(Number);
   return {
@@ -276,6 +280,7 @@ function looksLikeMidnightUtcIngest(start: Date, end: Date, kind: TemporalKind):
 
 function parseTimedToUtc(start: string, end: string, zone: string): { start: Date; end: Date } {
   const z = zone.trim() || DEFAULT_TIMED_ZONE;
+  if (!DateTime.now().setZone(z).isValid) throw new Error(`Invalid timezone: ${zone}`);
 
   const parseOne = (value: string): DateTime => {
     const trimmed = value.trim();
@@ -284,15 +289,19 @@ function parseTimedToUtc(start: string, end: string, zone: string): { start: Dat
       if (!dt.isValid) throw new Error(`Invalid datetime: ${value}`);
       return dt.toUTC();
     }
-    if (isDateOnlyString(trimmed)) {
-      const dt = DateTime.fromISO(`${trimmed}T00:00:00`, { zone: z });
-      if (!dt.isValid) throw new Error(`Invalid date: ${value}`);
-      return dt.toUTC();
-    }
+    if (isDateOnlyString(trimmed)) throw new Error(`Timed event requires an explicit clock time: ${value}`);
     // datetime-local: no offset — interpret in event zone
     const normalized = trimmed.length === 16 ? `${trimmed}:00` : trimmed;
     const dt = DateTime.fromISO(normalized, { zone: z });
     if (!dt.isValid) throw new Error(`Invalid datetime: ${value}`);
+    // Luxon otherwise silently moves nonexistent spring-forward clocks and picks
+    // one of two fall-back instants. Neither is source-backed without an offset.
+    if (dt.toFormat("yyyy-MM-dd'T'HH:mm:ss") !== normalized.slice(0, 19)) {
+      throw new Error(`Nonexistent or invalid local datetime: ${value} (${z})`);
+    }
+    if (dt.getPossibleOffsets().length > 1) {
+      throw new Error(`Ambiguous local datetime requires an explicit offset: ${value} (${z})`);
+    }
     return dt.toUTC();
   };
 
@@ -308,12 +317,16 @@ export function normalizeEventForWrite(input: EventTemporalInput): NormalizedEve
     input.temporalKind ?? inferTemporalKindFromLegacy(input.timezone);
 
   if (kind === TEMPORAL_KIND.ALL_DAY) {
-    const startYmd = isDateOnlyString(input.start)
-      ? input.start.trim()
-      : formatYmdUtc(new Date(input.start));
-    const endYmd = isDateOnlyString(input.end)
-      ? input.end.trim()
-      : formatYmdUtc(new Date(input.end));
+    const civilInput = (value: string): string => {
+      const trimmed = value.trim();
+      const parsed = DateTime.fromISO(trimmed, { zone: 'utc', setZone: true });
+      if (!parsed.isValid) throw new Error(`Invalid civil date: ${value}`);
+      const ymd = trimmed.slice(0, 10);
+      parseYmdToUtcDate(ymd);
+      return ymd;
+    };
+    const startYmd = civilInput(input.start);
+    const endYmd = civilInput(input.end);
 
     const { start, end } = allDayInstantsFromCivilDates(startYmd, endYmd);
 
@@ -480,12 +493,9 @@ export function toFullCalendarEvent(event: Event) {
   let endDate = typeof event.end === 'string' ? event.end : event.end.toISOString();
 
   if (isAllDay) {
-    const endDateObj = new Date(endDate);
-    const endYear = endDateObj.getUTCFullYear();
-    const endMonth = endDateObj.getUTCMonth();
-    const endDay = endDateObj.getUTCDate();
-    const exclusiveEndDate = new Date(Date.UTC(endYear, endMonth, endDay + 1, 12, 0, 0, 0));
-    endDate = exclusiveEndDate.toISOString();
+    const payload = toGoogleCalendarPayload(event);
+    startDate = payload.start.date!;
+    endDate = payload.end.date!;
   }
 
   return {
@@ -557,11 +567,12 @@ export function toICalEvent(event: EventTemporalRow): ICalEventShape {
   let end = new Date(event.end);
 
   if (isAllDay) {
-    const endYear = end.getUTCFullYear();
-    const endMonth = end.getUTCMonth();
-    const endDay = end.getUTCDate();
-    end = new Date(Date.UTC(endYear, endMonth, endDay + 1, 12, 0, 0, 0));
-    return { start, end, allDay: true };
+    const payload = toGoogleCalendarPayload(event);
+    return {
+      start: parseYmdToUtcDate(payload.start.date!),
+      end: parseYmdToUtcDate(payload.end.date!),
+      allDay: true,
+    };
   }
 
   const zone = resolveEventTimezone(event);

@@ -6,7 +6,7 @@ import { prisma } from '@/lib/db';
 import { isIsolatedDatabaseEnvironment } from '@/lib/database-url';
 import type { ExtractedEvent } from '@/lib/extractor/schema';
 import { extractEventsFromUrl } from '@/lib/extractor/agent';
-import { scrapeUrlGeneric } from '@/lib/scraper';
+import { scrapeUrlGenericWithVerification } from '@/lib/scraper';
 import { markdownToOverrideHtml, scrapeUrlWithFirecrawl } from '@/lib/firecrawl';
 import { fingerprintFromNormalizedEvent } from '@/lib/dedupe';
 import { normalize_events } from '@/lib/tools';
@@ -28,6 +28,7 @@ import {
   nextCheckAtForSource,
   extractDetailLinks,
   extractRelevantContent,
+  fullVerificationDue,
   hashContent,
   isDueForScheduledCheck,
   isOverdue,
@@ -45,6 +46,12 @@ export {
 
 type ExtractionMethod = 'agent' | 'generic' | 'firecrawl-agent';
 
+// A prior baseline did not cover the same fields or evidence rules.
+const BASELINE_VERSION = 'v2:';
+function currentBaseline(hash: string | null) {
+  return hash?.startsWith(BASELINE_VERSION) ? hash : null;
+}
+
 function asJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
@@ -57,7 +64,7 @@ function sourceState(source: MonitoredUrl): SourceCheckState {
     checkInterval: source.checkInterval,
     monitoringEndsAt: source.monitoringEndsAt,
     failureCount: source.failureCount,
-    processedContentHash: source.processedContentHash,
+    processedContentHash: currentBaseline(source.processedContentHash),
     lastFullScanAt: source.lastFullScanAt,
     fullVerificationIntervalMs: source.fullVerificationIntervalMs,
     requiresBrowser: source.requiresBrowser,
@@ -73,6 +80,7 @@ export function sourceWatchStatus(source: MonitoredUrl, now = new Date()) {
   if (source.monitoringEndsAt && source.monitoringEndsAt < now) return 'ended';
   if (source.scanClaimedAt && !canClaim(source, now)) return 'checking';
   if (isOverdue(state, now)) return 'overdue';
+  if (source.lastError) return 'failed';
   return 'active';
 }
 
@@ -99,21 +107,29 @@ function calendarSnapshot(event: Event): CalendarEventSnapshot {
   };
 }
 
-async function extractSourceEvents(source: MonitoredUrl): Promise<{
+async function extractSourceEvents(source: MonitoredUrl, html: string, allowRemoteFallback = true): Promise<{
   events: ExtractedEvent[];
   method: ExtractionMethod;
+  partial: boolean;
+  baselineMatches: boolean;
+  issue?: string;
 }> {
   let agentEvents: ExtractedEvent[] = [];
   try {
-    const result = await extractEventsFromUrl(source.url, source.name || new URL(source.url).hostname);
+    const result = await extractEventsFromUrl(source.url, source.name || new URL(source.url).hostname, html);
     agentEvents = result.events || [];
+    if (result.rejectedEvents) return { events: agentEvents, method: 'agent', partial: true, baselineMatches: true, issue: result.verificationIssues?.[0]?.reasons[0] };
   } catch (error) {
     console.warn(`[event-watch] Agent extraction failed for ${source.url}`, error);
   }
-  if (agentEvents.length > 0) return { events: agentEvents, method: 'agent' };
+  if (agentEvents.length > 0) return { events: agentEvents, method: 'agent', partial: false, baselineMatches: true };
 
-  const genericEvents = await scrapeUrlGeneric(source.url, source.name || undefined);
-  if (genericEvents.length > 0) return { events: genericEvents, method: 'generic' };
+  const generic = await scrapeUrlGenericWithVerification(source.url, source.name || undefined, html);
+  if (generic.rejectedEvents || generic.events.length > 0) return {
+    events: generic.events, method: 'generic', partial: generic.rejectedEvents > 0, baselineMatches: true,
+    issue: generic.verificationIssues[0]?.reasons[0],
+  };
+  if (!allowRemoteFallback) return { events: [], method: 'generic', partial: false, baselineMatches: true };
 
   const firecrawl = await scrapeUrlWithFirecrawl(source.url);
   const overrideHtml =
@@ -124,11 +140,14 @@ async function extractSourceEvents(source: MonitoredUrl): Promise<{
       source.name || new URL(source.url).hostname,
       overrideHtml
     );
-    if (result.events?.length) return { events: result.events, method: 'firecrawl-agent' };
+    if (result.rejectedEvents || result.events?.length) return {
+      events: result.events || [], method: 'firecrawl-agent', partial: Boolean(result.rejectedEvents), baselineMatches: false,
+      issue: result.verificationIssues?.[0]?.reasons[0],
+    };
   }
 
   if (firecrawl.error) throw new Error(firecrawl.error);
-  return { events: [], method: 'generic' };
+  return { events: [], method: 'generic', partial: false, baselineMatches: true };
 }
 
 async function mapPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
@@ -143,46 +162,99 @@ async function mapPool<T>(items: T[], limit: number, worker: (item: T) => Promis
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => run()));
 }
 
+async function withinTimeBudget<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([work, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Event check exceeded its time budget')), Math.max(1, timeoutMs));
+    })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Extract each captured page under its own URL so evidence is never borrowed
+ * from a different event. Detail checks share the caller's extraction deadline. */
+async function extractCapturedSourceEvents(
+  source: MonitoredUrl,
+  html: string,
+  details: Array<{ url: string; html: string }>
+) {
+  const listing = await extractSourceEvents(source, html, details.length === 0);
+  if (listing.partial) return listing;
+  const merged = new Map<string, ExtractedEvent>();
+  const eventKey = (event: ExtractedEvent) =>
+    `${event.title.trim().toLowerCase().replace(/\s+/g, ' ')}|${event.start}|${event.end}`;
+  for (const event of listing.events) merged.set(eventKey(event), event);
+  let partial = false;
+  let issue: string | undefined;
+  for (const detail of details) {
+    const extracted = await extractSourceEvents({ ...source, url: detail.url }, detail.html, false);
+    if (extracted.partial || extracted.events.length === 0) {
+      partial = true;
+      issue ||= extracted.issue || 'A linked event page did not yield verifiable event details';
+    }
+    for (const event of extracted.events) {
+      // A dedicated detail URL is preferable to the shared agenda URL.
+      const observed = !event.url || event.url === source.url ? { ...event, url: detail.url } : event;
+      merged.set(eventKey(observed), observed);
+    }
+  }
+  return { ...listing, events: [...merged.values()], partial, issue,
+    method: details.length ? 'agent' as ExtractionMethod : listing.method };
+}
+
 function parseDetailHashes(value: string | null): Record<string, string> {
   if (!value) return {};
   try {
-    const parsed = JSON.parse(value) as Record<string, string>;
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] =>
+      typeof entry[1] === 'string'));
   } catch {
     return {};
   }
 }
 
 async function hashDetailPages(links: string[], stored: Record<string, string>) {
-  const next = { ...stored };
+  const next: Record<string, string> = {};
+  const snapshots: Array<{ url: string; html: string }> = [];
   let detailHashesMatch = links.length > 0;
   let partial = false;
   await mapPool(links, 2, async (link) => {
     try {
       await assertSafePublicHttpUrl(link);
-      const detail = await safePublicFetch(link);
+      const detail = await safePublicFetch(link, { signal: AbortSignal.timeout(15_000) });
       if (!detail.ok) {
         partial = true;
         detailHashesMatch = false;
         return;
       }
-      const text = extractRelevantContent(await detail.text());
+      const html = await detail.text();
+      const text = extractRelevantContent(html);
+      if (!text) {
+        partial = true;
+        detailHashesMatch = false;
+        return;
+      }
       const detailHash = hashContent(text);
       if (!stored[link] || stored[link] !== detailHash) detailHashesMatch = false;
       next[link] = detailHash;
+      snapshots.push({ url: link, html });
     } catch (error) {
       console.warn(`[event-watch] Detail page check failed for ${link}`, error);
       partial = true;
       detailHashesMatch = false;
     }
   });
-  return { next, detailHashesMatch, partial };
+  return { next, detailHashesMatch, partial, snapshots };
 }
 
 async function loadSourceContent(source: MonitoredUrl, forceFull: boolean) {
   const storedDetails = parseDetailHashes(source.detailPageHashes);
   // A static shell or validator is not evidence for a JavaScript agenda.
-  const allowConditional = !forceFull && !source.requiresBrowser && Boolean(source.processedContentHash);
+  const allowConditional = !forceFull && !fullVerificationDue(source, new Date()) &&
+    !source.requiresBrowser && Boolean(currentBaseline(source.processedContentHash));
   const headers: Record<string, string> = {
     'User-Agent': 'TheMediaCalendar Event Watch',
     Accept: 'text/html,application/xhtml+xml',
@@ -196,7 +268,7 @@ async function loadSourceContent(source: MonitoredUrl, forceFull: boolean) {
     conditionalValidatorsSent = true;
   }
 
-  const response = await safePublicFetch(source.url, { headers });
+  const response = await safePublicFetch(source.url, { headers, signal: AbortSignal.timeout(15_000) });
   const fetchedEtag = response.headers.get('etag');
   const fetchedLastModified = response.headers.get('last-modified');
 
@@ -215,6 +287,8 @@ async function loadSourceContent(source: MonitoredUrl, forceFull: boolean) {
           fetchedLastModified,
           detailPageHashes: JSON.stringify(checked.next),
           partial: false,
+          html: '',
+          detailSnapshots: [],
         };
       }
     }
@@ -229,6 +303,8 @@ async function loadSourceContent(source: MonitoredUrl, forceFull: boolean) {
       fetchedLastModified,
       detailPageHashes: source.detailPageHashes,
       partial: true,
+      html: '',
+      detailSnapshots: [],
     };
   }
 
@@ -243,6 +319,8 @@ async function loadSourceContent(source: MonitoredUrl, forceFull: boolean) {
       fetchedLastModified,
       detailPageHashes: source.detailPageHashes,
       partial: false,
+      html: '',
+      detailSnapshots: [],
     };
   }
 
@@ -261,13 +339,16 @@ async function loadSourceContent(source: MonitoredUrl, forceFull: boolean) {
   let detailHashesMatch = true;
   let partial = false;
   const nextDetails = { ...storedDetails };
+  let detailSnapshots: Array<{ url: string; html: string }> = [];
   const linkHtml = source.requiresBrowser ? browserHtml : html;
   if (source.monitorDetailPages && response.ok && linkHtml) {
     const links = extractDetailLinks(linkHtml, source.url, EVENT_WATCH_DETAIL_PAGE_LIMIT);
     const checked = await hashDetailPages(links, storedDetails);
+    for (const key of Object.keys(nextDetails)) delete nextDetails[key];
     Object.assign(nextDetails, checked.next);
+    detailSnapshots = checked.snapshots;
     detailHashesMatch = checked.detailHashesMatch;
-    partial = checked.partial;
+    partial = checked.partial || links.length === 0;
     const unchecked = Object.keys(storedDetails).filter((url) => !links.includes(url));
     if (unchecked.length > 0 || links.length === 0) detailHashesMatch = false;
     if (source.requiresBrowser && browserContentHash) {
@@ -280,13 +361,15 @@ async function loadSourceContent(source: MonitoredUrl, forceFull: boolean) {
   return {
     httpStatus: response.status,
     conditionalValidatorsSent,
-    contentHash,
-    browserContentHash,
+    contentHash: contentHash ? `${BASELINE_VERSION}${contentHash}` : null,
+    browserContentHash: browserContentHash ? `${BASELINE_VERSION}${browserContentHash}` : null,
     detailHashesMatch,
     fetchedEtag,
     fetchedLastModified,
     detailPageHashes: JSON.stringify(nextDetails),
     partial,
+    html: source.requiresBrowser ? browserHtml : html,
+    detailSnapshots,
   };
 }
 
@@ -337,7 +420,7 @@ async function queueCalendarSyncIfProduction() {
   });
 }
 
-async function createPendingEvent(event: ExtractedEvent, storageUrl: string | null) {
+async function createPendingEvent(event: ExtractedEvent, storageUrl: string | null, db: Pick<Prisma.TransactionClient, 'event'> = prisma) {
   const temporal = normalizeEventForWrite(
     fromCsvRow({
       start: event.start,
@@ -348,9 +431,9 @@ async function createPendingEvent(event: ExtractedEvent, storageUrl: string | nu
   );
   const stored = { ...event, url: storageUrl || undefined };
   const fingerprint = fingerprintFromNormalizedEvent(stored);
-  const existing = await prisma.event.findFirst({ where: { dedupeFingerprint: fingerprint } });
+  const existing = await db.event.findFirst({ where: { dedupeFingerprint: fingerprint } });
   if (existing) return existing;
-  return prisma.event.create({
+  return db.event.create({
     data: {
       title: event.title,
       description: event.description || null,
@@ -372,10 +455,11 @@ async function createPendingEvent(event: ExtractedEvent, storageUrl: string | nu
 
 export async function runEventWatchSource(
   sourceId: string,
-  options: { trigger?: CheckTrigger } = {}
+  options: { trigger?: CheckTrigger; deadlineAt?: number } = {}
 ) {
   const trigger = options.trigger ?? 'MANUAL';
   const now = new Date();
+  const deadlineAt = options.deadlineAt ?? now.getTime() + EVENT_WATCH_CRON_BUDGET_MS;
   await recoverAbandonedEventWatchScans(now);
   const source = await prisma.monitoredUrl.findUnique({ where: { id: sourceId } });
   if (!source) throw new Error('Monitored source not found');
@@ -391,18 +475,25 @@ export async function runEventWatchSource(
   const claimed = await claimSourceRow(source.id, now, token);
   if (!claimed) throw new Error('A scan for this source is already running');
 
-  const scan = await prisma.eventWatchScan.create({
-    data: { monitoredUrlId: source.id, trigger, status: 'RUNNING', outcome: 'RUNNING' },
-  });
+  let scan: { id: string };
+  try {
+    scan = await prisma.eventWatchScan.create({
+      data: { monitoredUrlId: source.id, trigger, status: 'RUNNING', outcome: 'RUNNING' },
+    });
+  } catch (error) {
+    await releaseClaim(source.id, token);
+    throw error;
+  }
 
   try {
-    const loaded = await loadSourceContent(source, trigger === 'FORCE_FULL');
+    const loaded = await withinTimeBudget(loadSourceContent(source, trigger === 'FORCE_FULL'),
+      Math.min(90_000, deadlineAt - Date.now() - 15_000));
     const skip = decideExtractionSkip({
       forceFull: trigger === 'FORCE_FULL',
       now,
       lastFullScanAt: source.lastFullScanAt,
       fullVerificationIntervalMs: source.fullVerificationIntervalMs,
-      processedContentHash: source.processedContentHash,
+      processedContentHash: currentBaseline(source.processedContentHash),
       httpStatus: loaded.httpStatus,
       conditionalValidatorsSent: loaded.conditionalValidatorsSent,
       contentHash: source.requiresBrowser ? null : loaded.contentHash,
@@ -413,6 +504,9 @@ export async function runEventWatchSource(
     });
     let extraction: { ok: true; events: ExtractedEvent[]; method: string } | { ok: false; error: string } | null =
       null;
+    let extractionPartial = false;
+    let verificationIssue: string | undefined;
+    let extractionBaselineMatches = true;
     const shouldExtract =
       !skip.skip &&
       loaded.httpStatus != null &&
@@ -421,18 +515,30 @@ export async function runEventWatchSource(
       !loaded.partial;
     if (shouldExtract) {
       try {
-        const extracted = await extractSourceEvents(source);
+        // Only extraction is raced: a timed-out task must never continue database writes.
+        const extracted = await withinTimeBudget(
+          extractCapturedSourceEvents(source, loaded.html, loaded.detailSnapshots),
+          Math.min(120_000, deadlineAt - Date.now() - 15_000)
+        );
+        extractionPartial = extracted.partial;
+        verificationIssue = extracted.issue;
+        extractionBaselineMatches = extracted.baselineMatches;
         const normalized = await normalize_events({
           events: extracted.events,
           defaultTimezone: process.env.DEFAULT_TIMEZONE || 'America/New_York',
         });
+        if (normalized.events.length !== extracted.events.length) {
+          extractionPartial = true;
+          verificationIssue ||= 'Some extracted dates did not pass calendar validation';
+        }
         extraction = { ok: true, events: normalized.events, method: extracted.method };
       } catch (error) {
         extraction = { ok: false, error: error instanceof Error ? error.message : String(error) };
       }
     }
 
-    const [identities, observations, proposals, candidates] = await Promise.all([
+    const needsComparison = !loaded.partial && !extractionPartial && extraction?.ok && extraction.events.length > 0;
+    const [identities, observations, proposals, candidates] = needsComparison ? await Promise.all([
       prisma.eventWatchIdentity.findMany({ where: { monitoredUrlId: source.id } }),
       prisma.eventWatchObservation.findMany({
         where: { monitoredUrlId: source.id },
@@ -446,7 +552,7 @@ export async function runEventWatchSource(
         where: { monitoredUrlId: source.id },
         select: { candidateKey: true, reviewStatus: true, pendingEventId: true },
       }),
-    ]);
+    ]) : [[], [], [], []];
 
     const latestPayloadByKey: Record<string, ExtractedEvent> = {};
     const existingIdentityStarts: Array<{ stableKey: string; lastStart?: string | null }> = [];
@@ -486,7 +592,8 @@ export async function runEventWatchSource(
       fetchedEtag: loaded.fetchedEtag,
       fetchedLastModified: loaded.fetchedLastModified,
       extraction: shouldExtract ? extraction : loaded.httpStatus === 304 ? null : extraction,
-      partial: loaded.partial,
+      partial: loaded.partial || extractionPartial,
+      verificationIssue: verificationIssue || (loaded.partial ? 'Could not verify all selected source pages' : undefined),
       calendarEvents: calendarEvents.map(calendarSnapshot),
       identities: identities.map((identity) => ({
         stableKey: identity.stableKey,
@@ -502,17 +609,19 @@ export async function runEventWatchSource(
       existingIdentityStarts,
     });
 
-    const pendingIds = new Map<string, string>();
-    const publishedIds = new Map<string, string>();
-    for (const pending of built.pendingEvents) {
-      const created = await createPendingEvent(pending.event, pending.storageUrl);
-      if (created.status === 'PENDING') pendingIds.set(pending.stableKey, created.id);
-      else publishedIds.set(pending.stableKey, created.id);
-    }
     const finishedAt = new Date();
     const baselines = new Map(identities.map((identity) => [identity.stableKey, identity.baselineEstablishedAt]));
 
     await prisma.$transaction(async (tx) => {
+      const claim = await tx.monitoredUrl.findUnique({ where: { id: source.id }, select: { scanClaimToken: true } });
+      if (claim?.scanClaimToken !== token) throw new Error('Source check no longer holds its claim');
+      const pendingIds = new Map<string, string>();
+      const publishedIds = new Map<string, string>();
+      for (const pending of built.pendingEvents) {
+        const created = await createPendingEvent(pending.event, pending.storageUrl, tx);
+        if (created.status === 'PENDING') pendingIds.set(pending.stableKey, created.id);
+        else publishedIds.set(pending.stableKey, created.id);
+      }
       if (built.observations.length) {
         await tx.eventWatchObservation.createMany({
           data: built.observations.map((observation) => ({
@@ -617,7 +726,7 @@ export async function runEventWatchSource(
       });
 
       const processedHash = source.requiresBrowser ? loaded.browserContentHash : loaded.contentHash;
-      const advance = built.advanceProcessedBaseline && Boolean(processedHash);
+      const advance = built.advanceProcessedBaseline && extractionBaselineMatches && Boolean(processedHash);
       const sameContent = Boolean(built.skipReason && processedHash && processedHash === source.processedContentHash);
       await tx.monitoredUrl.update({
         where: { id: source.id },
@@ -639,7 +748,8 @@ export async function runEventWatchSource(
               ? loaded.fetchedLastModified || source.processedHttpLastModified
               : undefined,
           lastFullScanAt: built.fullExtractionRan && built.succeeded ? finishedAt : undefined,
-          detailPageHashes: loaded.detailPageHashes,
+          // Detail hashes are part of the processed baseline, never advance on failure.
+          detailPageHashes: advance || (built.succeeded && built.skipReason) ? loaded.detailPageHashes : undefined,
         },
       });
     });
@@ -649,6 +759,7 @@ export async function runEventWatchSource(
     );
     return {
       scanId: scan.id,
+      ok: built.succeeded,
       summary: built.summary,
       outcome: built.outcome,
       newEvents: built.newEvents,
@@ -700,19 +811,18 @@ export async function runDueEventWatchSources(limit = EVENT_WATCH_CRON_SOURCE_LI
         { OR: [{ monitoringEndsAt: null }, { monitoringEndsAt: { gte: now } }] },
       ],
     },
-    orderBy: [{ failureCount: 'asc' }, { nextCheckAt: 'asc' }],
+    orderBy: [{ nextCheckAt: 'asc' }, { failureCount: 'asc' }],
     take: 50,
   });
   const ranked = sortDueSources(sources.filter((source) => isDueForScheduledCheck(sourceState(source), now)));
   const due = ranked.slice(0, Math.max(1, Math.min(limit, EVENT_WATCH_CRON_SOURCE_LIMIT)));
   const results = [];
   for (const source of due) {
-    if (Date.now() - started > EVENT_WATCH_CRON_BUDGET_MS) break;
+    if (Date.now() - started > EVENT_WATCH_CRON_BUDGET_MS - 15_000) break;
     try {
       results.push({
         sourceId: source.id,
-        ok: true,
-        ...(await runEventWatchSource(source.id, { trigger: 'SCHEDULED' })),
+        ...(await runEventWatchSource(source.id, { trigger: 'SCHEDULED', deadlineAt: started + EVENT_WATCH_CRON_BUDGET_MS })),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -742,7 +852,7 @@ export async function withSchedulerRun<T extends { due: number; processed: numbe
       where: { id: run.id },
       data: {
         finishedAt: new Date(),
-        outcome: result.failed > 0 ? 'PARTIAL' : 'SUCCESS',
+        outcome: result.failed > 0 || result.processed < result.due ? 'PARTIAL' : 'SUCCESS',
         sourcesDue: result.due,
         processed: result.processed,
         failed: result.failed,
@@ -773,6 +883,7 @@ function parseCandidatePayload(payload: Prisma.JsonValue): ExtractedEvent {
 export async function approveEventWatchCandidate(candidateId: string, reviewerId: string) {
   const existing = await prisma.eventWatchCandidate.findUnique({ where: { id: candidateId } });
   if (!existing) throw new Error('Event Watch candidate not found');
+  if (existing.matchStatus === 'AMBIGUOUS') throw new Error('Resolve this event match before publishing');
   if (existing.reviewStatus === 'APPROVED') {
     if (!existing.pendingEventId) throw new Error('Approved candidate has no event');
     const event = await prisma.event.findUnique({ where: { id: existing.pendingEventId } });
@@ -789,22 +900,27 @@ export async function approveEventWatchCandidate(candidateId: string, reviewerId
   const pending = await prisma.event.findUnique({ where: { id: pendingEventId } });
   if (!pending) throw new Error('Pending event could not be materialized');
 
-  const [event] = await prisma.$transaction([
-    prisma.event.update({
-      where: { id: pendingEventId },
-      data: { status: 'PUBLISHED' },
-    }),
-    prisma.eventWatchCandidate.update({
-      where: { id: existing.id },
+  const event = await prisma.$transaction(async (tx) => {
+    const marked = await tx.eventWatchCandidate.updateMany({
+      where: { id: existing.id, reviewStatus: 'PENDING' },
       data: { reviewStatus: 'APPROVED', reviewedAt: new Date(), reviewedBy: reviewerId, pendingEventId },
-    }),
-    prisma.eventWatchIdentity.updateMany({
+    });
+    if (marked.count !== 1) {
+      const latest = await tx.eventWatchCandidate.findUnique({ where: { id: existing.id } });
+      if (latest?.reviewStatus === 'APPROVED' && latest.pendingEventId) {
+        return tx.event.findUniqueOrThrow({ where: { id: latest.pendingEventId } });
+      }
+      throw new Error('Candidate is no longer pending review');
+    }
+    const published = await tx.event.update({ where: { id: pendingEventId }, data: { status: 'PUBLISHED' } });
+    await tx.eventWatchIdentity.updateMany({
       where: { monitoredUrlId: existing.monitoredUrlId, stableKey: existing.candidateKey },
       data: { eventId: pendingEventId, pendingEventId },
-    }),
-  ]);
+    });
+    return published;
+  });
   await queueCalendarSyncIfProduction();
-  await processAllFilterSubscriptionsForEvent(event.id, event);
+  if (!isIsolatedDatabaseEnvironment()) await processAllFilterSubscriptionsForEvent(event.id, event);
   return event;
 }
 
@@ -813,15 +929,18 @@ export async function rejectEventWatchCandidate(candidateId: string, reviewerId:
   if (!candidate) throw new Error('Event Watch candidate not found');
   if (candidate.reviewStatus === 'REJECTED') return;
   if (candidate.reviewStatus !== 'PENDING') throw new Error('Candidate is no longer pending review');
-  await prisma.eventWatchCandidate.update({
-    where: { id: candidate.id },
-    data: { reviewStatus: 'REJECTED', reviewedAt: new Date(), reviewedBy: reviewerId },
-  });
-  if (candidate.pendingEventId) {
-    await prisma.event.deleteMany({
-      where: { id: candidate.pendingEventId, status: 'PENDING' },
+  await prisma.$transaction(async (tx) => {
+    const rejected = await tx.eventWatchCandidate.updateMany({
+      where: { id: candidate.id, reviewStatus: 'PENDING' },
+      data: { reviewStatus: 'REJECTED', reviewedAt: new Date(), reviewedBy: reviewerId },
     });
-  }
+    if (!rejected.count) {
+      const latest = await tx.eventWatchCandidate.findUnique({ where: { id: candidate.id } });
+      if (latest?.reviewStatus === 'REJECTED') return;
+      throw new Error('Candidate is no longer pending review');
+    }
+    if (candidate.pendingEventId) await tx.event.deleteMany({ where: { id: candidate.pendingEventId, status: 'PENDING' } });
+  });
 }
 
 export async function reviewEventWatchProposal(
@@ -847,10 +966,14 @@ export async function reviewEventWatchProposal(
   if (decision.type === 'idempotent') return proposal.event;
   if (decision.type === 'invalid') throw new Error(decision.message);
   if (decision.type === 'rejected') {
-    await prisma.eventWatchChangeProposal.updateMany({
+    const rejected = await prisma.eventWatchChangeProposal.updateMany({
       where: { id: proposal.id, reviewStatus: 'PENDING' },
       data: { reviewStatus: 'REJECTED', reviewedAt: new Date(), reviewedBy: reviewerId },
     });
+    if (!rejected.count) {
+      const latest = await prisma.eventWatchChangeProposal.findUnique({ where: { id: proposal.id } });
+      if (latest?.reviewStatus !== 'REJECTED') throw new Error('Proposal is no longer pending review');
+    }
     return proposal.event;
   }
   if (decision.type === 'conflict') {
@@ -861,6 +984,7 @@ export async function reviewEventWatchProposal(
     throw new Error('This event changed after the proposal was created. Check the source again before reviewing.');
   }
 
+  const conflictMessage = 'This event changed after the proposal was created. Check the source again before reviewing.';
   const updated = await prisma.$transaction(async (tx) => {
     const current = await tx.event.findUnique({ where: { id: proposal.eventId } });
     if (!current) throw new Error('Event no longer exists');
@@ -875,11 +999,7 @@ export async function reviewEventWatchProposal(
       event: calendarSnapshot(current),
     });
     if (fresh.type === 'conflict') {
-      await tx.eventWatchChangeProposal.updateMany({
-        where: { id: proposal.id, reviewStatus: 'PENDING' },
-        data: { reviewStatus: 'STALE' },
-      });
-      throw new Error('This event changed after the proposal was created. Check the source again before reviewing.');
+      throw new Error(conflictMessage);
     }
     if (fresh.type !== 'apply') throw new Error('Proposal is no longer pending review');
     const marked = await tx.eventWatchChangeProposal.updateMany({
@@ -891,10 +1011,21 @@ export async function reviewEventWatchProposal(
       if (latest?.reviewStatus === 'APPROVED') return current;
       throw new Error('Proposal is no longer pending review');
     }
-    return tx.event.update({
-      where: { id: current.id },
-      data: fresh.data as Prisma.EventUpdateInput,
+    // Compare-and-set closes the race between reading the event and writing it.
+    const changed = await tx.event.updateMany({
+      where: { id: current.id, updatedAt: proposal.eventUpdatedAtSnapshot },
+      data: fresh.data as Prisma.EventUpdateManyMutationInput,
     });
+    if (changed.count !== 1) throw new Error(conflictMessage);
+    return tx.event.findUniqueOrThrow({ where: { id: current.id } });
+  }).catch(async (error) => {
+    // This must happen outside the rolled-back approval transaction.
+    if (error instanceof Error && error.message === conflictMessage) {
+      await prisma.eventWatchChangeProposal.updateMany({
+        where: { id: proposal.id, reviewStatus: 'PENDING' }, data: { reviewStatus: 'STALE' },
+      });
+    }
+    throw error;
   });
   await queueCalendarSyncIfProduction();
   return updated;

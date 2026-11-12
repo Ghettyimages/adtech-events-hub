@@ -18,6 +18,8 @@ export type ExtractedEvent = {
   /** Stable id from the source, when the page exposes one. */
   sourceEventId?: string;
   date_status: 'confirmed' | 'tbd';
+  /** Page snapshot used to verify the event; set by the extractor, not the model. */
+  evidenceUrl?: string;
   evidence?: string;
   evidence_context?: string;
   location_status: 'confirmed' | 'tbd';

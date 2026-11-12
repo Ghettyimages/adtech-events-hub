@@ -4,12 +4,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { scrapeUrlGeneric } from '@/lib/scraper';
+import { scrapeUrlGenericWithVerification } from '@/lib/scraper';
 import { extractEventsFromUrl } from '@/lib/extractor/agent';
 import { normalize_events, ingestScrapedEvents } from '@/lib/tools';
 import { markdownToOverrideHtml, scrapeUrlWithFirecrawl } from '@/lib/firecrawl';
 import { requireAdmin } from '@/lib/auth-helpers';
 import { assertSafePublicHttpUrl } from '@/lib/safeRemoteUrl';
+import { scrapeVerification, type VerificationIssue } from '@/lib/scrapeVerification';
 
 type ExtractionMethod = 'agent' | 'generic' | 'firecrawl' | 'firecrawl-agent';
 
@@ -89,11 +90,13 @@ export async function POST(request: NextRequest) {
     let agentError: string | null = null;
     let firecrawlError: string | null = null;
     let extractedEvents: any[] = [];
+    const verificationIssues: VerificationIssue[] = [];
 
     if (!forceGeneric) {
       try {
         const agentResult = await extractEventsFromUrl(url, sourceName);
         extractedEvents = agentResult.events || [];
+        verificationIssues.push(...(agentResult.verificationIssues || []));
       } catch (error: any) {
         agentError = error?.message || 'Unknown agent error';
         extractionMethod = 'generic';
@@ -102,13 +105,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (extractionMethod === 'generic') {
-      const fallbackEvents = await scrapeUrlGeneric(url, sourceName);
-      extractedEvents = fallbackEvents;
+      const fallback = await scrapeUrlGenericWithVerification(url, sourceName);
+      extractedEvents = fallback.events;
+      verificationIssues.push(...(fallback.verificationIssues || []));
     } else if (!extractedEvents || extractedEvents.length === 0) {
-      const fallbackEvents = await scrapeUrlGeneric(url, sourceName);
-      if (fallbackEvents.length > 0) {
+      const fallback = await scrapeUrlGenericWithVerification(url, sourceName);
+      verificationIssues.push(...(fallback.verificationIssues || []));
+      if (fallback.events.length > 0) {
         extractionMethod = 'generic';
-        extractedEvents = fallbackEvents;
+        extractedEvents = fallback.events;
       }
     }
 
@@ -143,6 +148,7 @@ export async function POST(request: NextRequest) {
         try {
           const firecrawlAgentResult = await extractEventsFromUrl(url, sourceName, overrideHtml);
           const firecrawlEvents = firecrawlAgentResult.events || [];
+          verificationIssues.push(...(firecrawlAgentResult.verificationIssues || []));
           console.log(`[scrape] Events after Firecrawl extraction: ${firecrawlEvents.length}`);
 
           if (firecrawlEvents.length > 0) {
@@ -165,7 +171,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!extractedEvents || extractedEvents.length === 0) {
-      const message = 'No events found on this page';
+      const verification = scrapeVerification([], verificationIssues);
+      const message = verification.rejectedEvents > 0
+        ? 'Could not verify event details against the source. Unsupported events were not saved.'
+        : 'No verifiable events were extracted from this page. This does not confirm the page has no events.';
 
       if (enableMonitoring) {
         await prisma.monitoredUrl.upsert({
@@ -188,7 +197,9 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({
-        success: true,
+        success: false,
+        outcome: 'INCOMPLETE',
+        ...verification,
         extractionMethod,
         eventsFound: 0,
         message,
@@ -205,7 +216,9 @@ export async function POST(request: NextRequest) {
 
     if (!normalizationResult.ok || normalizationResult.count === 0) {
       return NextResponse.json({
-        success: true,
+        success: false,
+        outcome: 'INCOMPLETE',
+        ...scrapeVerification([], verificationIssues),
         extractionMethod,
         eventsFound: 0,
         message: 'No events could be normalized from this page',
@@ -216,6 +229,7 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
+    const verification = scrapeVerification(normalizationResult.events, verificationIssues);
     const filteredEvents = skipPastEvents
       ? normalizationResult.events.filter((event) => {
           const value = (event.end || event.start || '').trim();
@@ -255,7 +269,9 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({
-        success: true,
+        success: verification.verificationStatus === 'VERIFIED',
+        outcome: 'NO_UPCOMING_EVENTS',
+        ...verification,
         extractionMethod,
         eventsFound: 0,
         rawEventsFound: normalizationResult.count,
@@ -318,7 +334,9 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      success: true,
+      success: errorCount === 0 && verification.verificationStatus === 'VERIFIED',
+      outcome: errorCount > 0 ? 'INCOMPLETE' : verification.verificationStatus === 'PARTIAL' ? 'PARTIAL' : 'SUCCESS',
+      ...verification,
       extractionMethod,
       eventsFound: normalizationResult.count,
       rawEventsFound: extractedEvents.length,

@@ -23,6 +23,7 @@ import {
   type NormalizedEventTemporal,
 } from './eventTemporal';
 import { updateEventSchema } from './validation';
+import { editionsCompatible, sourceDateYear } from './eventWatchEdition';
 
 export const EVENT_WATCH_DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 export const EVENT_WATCH_FULL_VERIFICATION_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -131,8 +132,24 @@ function presentText(value: string | null | undefined): string | undefined {
 /** Relevant event text with navigation, ads, cookie banners, and tracking params removed. */
 export function extractRelevantContent(html: string): string {
   const $ = cheerio.load(html);
+  // Event JSON-LD often carries dates and registration URLs absent from visible text.
+  const structuredEvents: unknown[] = [];
+  function collectEvents(value: unknown) {
+    if (Array.isArray(value)) return value.forEach(collectEvents);
+    if (!value || typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+    const types = Array.isArray(record['@type']) ? record['@type'] : [record['@type']];
+    if (types.some((type) => typeof type === 'string' && /Event$/.test(type))) {
+      structuredEvents.push(record);
+      return;
+    }
+    Object.values(record).forEach(collectEvents);
+  }
+  $('script[type="application/ld+json"]').each((_, element) => {
+    try { collectEvents(JSON.parse($(element).text())); } catch { /* Invalid data cannot be a baseline. */ }
+  });
   $(
-    'script, style, noscript, nav, footer, header, iframe, svg, form, [role="navigation"], [aria-label*="cookie" i], [id*="cookie" i], [class*="cookie" i], [class*="banner" i], [class*="advert" i], [id*="advert" i], [class*="ads" i], [class*="promo" i]'
+    'script, style, noscript, nav, footer, iframe, svg, form, [role="navigation"], [aria-label*="cookie" i], [id*="cookie" i], [class*="cookie" i], [data-ad-slot], [aria-label="advertisement" i]'
   ).remove();
 
   $('a[href]').each((_, element) => {
@@ -143,21 +160,25 @@ export function extractRelevantContent(html: string): string {
   });
 
   const main = $('main, article, [role="main"]').first();
-  const text =
-    main.length > 0 && presentText(main.text())
-      ? main.text()
-      : $('body').length
-        ? $('body').text()
-        : $.root().text();
-  return (text || '').replace(/\s+/g, ' ').trim();
+  const root = main.length > 0 && presentText(main.text()) ? main : $('body').length ? $('body') : $('html');
+  const links = root.find('a[href]').map((_, element) => $(element).attr('href')).get().sort();
+  const dates = root.find('time[datetime]').map((_, element) => $(element).attr('datetime')).get().sort();
+  return [root.text().replace(/\s+/g, ' ').trim(), ...links, ...dates,
+    ...structuredEvents.map((event) => JSON.stringify(event))].join('\n').trim();
+}
+
+export function fullVerificationDue(source: { lastFullScanAt: Date | null; fullVerificationIntervalMs: number }, now: Date): boolean {
+  return !source.lastFullScanAt || now.getTime() - source.lastFullScanAt.getTime() >= source.fullVerificationIntervalMs;
 }
 
 export function extractDetailLinks(html: string, listingUrl: string, limit = EVENT_WATCH_DETAIL_PAGE_LIMIT): string[] {
   const $ = cheerio.load(html);
+  $('nav, header, footer, [role="navigation"]').remove();
   const listing = normalizeEventUrl(listingUrl);
   const links: string[] = [];
-  $('a[href]').each((_, element) => {
-    if (links.length >= limit) return;
+  const main = $('main, [role="main"]').first();
+  const candidates = main.length ? main.find('a[href]') : $('a[href]');
+  candidates.each((_, element) => {
     const href = $(element).attr('href');
     if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('javascript:')) return;
     let absolute: string;
@@ -169,6 +190,14 @@ export function extractDetailLinks(html: string, listingUrl: string, limit = EVE
     const normalized = normalizeEventUrl(absolute);
     if (!normalized || normalized === listing || links.includes(normalized)) return;
     if (!/^https?:\/\//i.test(normalized)) return;
+    const parsed = new URL(normalized);
+    if (/(?:^|\.)(?:facebook|instagram|linkedin|twitter|youtube|x)\.com$/i.test(parsed.hostname)) return;
+    if (/\/(?:login|logout|sign-in|signin|signup|privacy|terms|contact|about)(?:\/|$)/i.test(parsed.pathname)) return;
+    const anchor = $(element);
+    const inEventCard = anchor.closest('[class*="event-card"], [class*="event-item"], [class*="event-listing"], [itemtype*="Event"], [data-event-id]').length > 0;
+    const eventPath = /(?:event|conference|summit|session|agenda|register|ticket|leadership|workshop|webinar|meetup)/i.test(parsed.pathname);
+    const eventText = /(?:event|conference|summit|session|register|ticket|workshop|webinar|meetup)/i.test(anchor.text());
+    if (!inEventCard && !eventPath && !eventText) return;
     links.push(normalized);
   });
   return links.slice(0, limit);
@@ -197,9 +226,7 @@ export function decideExtractionSkip(input: {
   detailHashesMatch: boolean;
 }): SkipDecision {
   if (input.forceFull) return { skip: false, reason: null };
-  const verificationDue =
-    !input.lastFullScanAt ||
-    input.now.getTime() - input.lastFullScanAt.getTime() >= input.fullVerificationIntervalMs;
+  const verificationDue = fullVerificationDue(input, input.now);
   if (verificationDue) return { skip: false, reason: null };
 
   const detailsOk = !input.monitorDetailPages || input.detailHashesMatch;
@@ -250,7 +277,7 @@ function titleIdentity(title: string): string {
 }
 
 function conservativeKey(event: ExtractedEvent): string {
-  return `title:${titleIdentity(event.title)}|edition:${editionToken(event.title)}`;
+  return `title:${titleIdentity(event.title)}|edition:${editionToken(event.title) || sourceDateYear(event.start) || 'unknown'}`;
 }
 
 function sameEdition(title: string, event: ExtractedEvent): boolean {
@@ -353,7 +380,8 @@ export function assignIdentities(
   return assigned.map((item) => ({
     stableKey: item.stableKey,
     identityKind: item.identityKind,
-    ambiguous: item.ambiguous,
+    ambiguous: item.ambiguous || existing.some((prior) => prior.stableKey === item.stableKey &&
+      prior.lastStart && !editionsCompatible({ title: item.event.title, start: prior.lastStart }, item.event)),
     dedicatedUrl: item.dedicatedUrl,
     event: item.event,
   }));
@@ -364,21 +392,27 @@ export function matchCalendarEvent(
   calendarEvents: CalendarEventSnapshot[],
   persisted?: IdentitySnapshot | null
 ): { type: 'linked' | 'pending' | 'unique' | 'ambiguous' | 'none'; eventId?: string; eventIds?: string[] } {
-  if (persisted?.eventId) return { type: 'linked', eventId: persisted.eventId };
-  if (persisted?.pendingEventId) return { type: 'pending', eventId: persisted.pendingEventId };
   if (identity.ambiguous || identity.identityKind === 'AMBIGUOUS') {
     return { type: 'ambiguous', eventIds: [] };
+  }
+  const persistedId = persisted?.eventId || persisted?.pendingEventId;
+  if (persistedId) {
+    const prior = calendarEvents.find((event) => event.id === persistedId);
+    if (!prior || !editionsCompatible(prior, identity.event)) return { type: 'ambiguous', eventIds: [persistedId] };
+    return { type: persisted?.eventId ? 'linked' : 'pending', eventId: persistedId };
   }
   if (identity.identityKind === 'SOURCE_ID') return { type: 'none' };
 
   if (identity.identityKind === 'EVENT_URL' && identity.dedicatedUrl) {
     const matches = calendarEvents.filter((event) => normalizeEventUrl(event.url) === identity.dedicatedUrl);
-    if (matches.length === 1) return { type: 'unique', eventId: matches[0].id };
+    if (matches.length === 1) return editionsCompatible(matches[0], identity.event)
+      ? { type: 'unique', eventId: matches[0].id }
+      : { type: 'ambiguous', eventIds: [matches[0].id] };
     if (matches.length > 1) return { type: 'ambiguous', eventIds: matches.map((event) => event.id) };
     return { type: 'none' };
   }
 
-  const matches = calendarEvents.filter((event) => sameEdition(event.title, identity.event));
+  const matches = calendarEvents.filter((event) => sameEdition(event.title, identity.event) && editionsCompatible(event, identity.event));
   if (matches.length === 1) return { type: 'unique', eventId: matches[0].id };
   if (matches.length > 1) return { type: 'ambiguous', eventIds: matches.map((event) => event.id) };
 
@@ -586,10 +620,9 @@ export function isOverdue(source: SourceCheckState, now: Date): boolean {
 
 export function sortDueSources<T extends SourceCheckState>(sources: T[]): T[] {
   return [...sources].sort((a, b) => {
-    if (a.failureCount !== b.failureCount) return a.failureCount - b.failureCount;
     const aDue = a.nextCheckAt?.getTime() ?? 0;
     const bDue = b.nextCheckAt?.getTime() ?? 0;
-    return aDue - bDue;
+    return aDue - bDue || a.failureCount - b.failureCount;
   });
 }
 
@@ -623,7 +656,9 @@ export function nextCheckAtForSource(
     ? Math.min(source.checkInterval * Math.pow(2, Math.min(failureCount, 6)), MAX_FAILURE_BACKOFF_MS)
     : source.checkInterval;
   const next = new Date(finishedAt.getTime() + delay);
-  if (source.monitoringEndsAt && next > source.monitoringEndsAt) return null;
+  // Null means "due now" to the scheduler. Keep a final due time instead of
+  // accidentally rescanning on every scheduler tick until monitoring ends.
+  if (source.monitoringEndsAt && next > source.monitoringEndsAt) return source.monitoringEndsAt;
   return next;
 }
 
@@ -676,6 +711,7 @@ export type BuildCheckInput = {
   fetchedLastModified: string | null;
   extraction: { ok: true; events: ExtractedEvent[]; method: string } | { ok: false; error: string } | null;
   partial: boolean;
+  verificationIssue?: string;
   calendarEvents: CalendarEventSnapshot[];
   identities: IdentitySnapshot[];
   latestPayloadByKey: Record<string, ExtractedEvent>;
@@ -773,7 +809,8 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
     succeeded: boolean
   ): BuildCheckResult => {
     const summary = summarizeCheck(summaryInput);
-    const failed = !succeeded;
+    const verified = succeeded && summary.outcome !== 'FAILED' && summary.outcome !== 'INCOMPLETE';
+    const failed = !verified;
     const failureCount = failed ? input.source.failureCount + 1 : 0;
     return {
       ...base,
@@ -781,12 +818,14 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
       error,
       nextCheckAt: nextCheckAtForSource(input.source, input.now, failureCount, failed),
       failureCount,
-      lastError: error,
-      succeeded,
+      lastError: verified ? null : error || summary.summary,
+      succeeded: verified,
     };
   };
 
   if (retrievalFailed || blocked || input.partial) {
+    base.fullExtractionRan = input.extraction !== null;
+    base.extractionMethod = input.extraction?.ok ? input.extraction.method : null;
     return finish(
       {
         httpStatus: input.httpStatus,
@@ -802,7 +841,7 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
         baselinesEstablished: 0,
         unchangedEvents: 0,
       },
-      retrievalFailed ? `HTTP ${input.httpStatus}` : input.partial ? 'Check did not finish' : 'Source blocked the check',
+      retrievalFailed ? `HTTP ${input.httpStatus}` : input.partial ? input.verificationIssue || 'Check did not finish' : 'Source blocked the check',
       false
     );
   }
@@ -927,14 +966,16 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
   }
 
   const identities = assignIdentities(upcoming, input.source.url, input.existingIdentityStarts);
+  let ambiguousIdentity = false;
   for (const identity of identities) {
     const fingerprint = contentFingerprint(identity.event);
     const evidence = evidenceText(identity.event);
+    const sourceUrl = identity.event.evidenceUrl || input.source.url;
     base.observations.push({
       stableKey: identity.stableKey,
       contentFingerprint: fingerprint,
       payload: identity.event,
-      sourceUrl: identity.dedicatedUrl || input.source.url,
+      sourceUrl,
       evidence,
     });
     const persisted = input.identities.find((item) => item.stableKey === identity.stableKey);
@@ -943,12 +984,13 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
     const establishBaseline = !persisted?.baselineEstablishedAt;
 
     if (match.type === 'ambiguous' || identity.ambiguous) {
+      ambiguousIdentity = true;
       const existingCandidate = input.candidates.find((candidate) => candidate.candidateKey === identity.stableKey);
       if (!existingCandidate) {
         base.candidates.push({
           stableKey: identity.stableKey,
           matchStatus: 'AMBIGUOUS',
-          sourceUrl: input.source.url,
+          sourceUrl,
           evidence,
           payload: identity.event,
         });
@@ -971,9 +1013,9 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
         if (establishBaseline) base.baselinesEstablished += 1;
         const changes = diffComparables(comparableFromCalendar(calendar), comparableFromExtracted(identity.event));
         if (changes.length > 0) {
+          base.discrepancies += 1;
           const signature = proposalSignature(calendar.id, changes);
           if (shouldOpenProposal(input.proposals, calendar.id, signature)) {
-            base.discrepancies += 1;
             base.proposals.push({
               stableKey: identity.stableKey,
               eventId: calendar.id,
@@ -982,7 +1024,7 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
               proposedValues: valuesFromChanges(changes, 'after'),
               changedFields: changes.map((change) => change.field),
               changes,
-              sourceUrl: identity.dedicatedUrl || input.source.url,
+              sourceUrl,
               evidence,
               signature,
               eventUpdatedAtSnapshot: calendar.updatedAt,
@@ -999,9 +1041,9 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
         if (changes.length === 0) {
           base.unchangedEvents += 1;
         } else {
+          base.changedEvents += 1;
           const signature = proposalSignature(calendar.id, changes);
           if (shouldOpenProposal(input.proposals, calendar.id, signature)) {
-            base.changedEvents += 1;
             base.proposals.push({
               stableKey: identity.stableKey,
               eventId: calendar.id,
@@ -1010,7 +1052,7 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
               proposedValues: valuesFromChanges(changes, 'after'),
               changedFields: changes.map((change) => change.field),
               changes,
-              sourceUrl: identity.dedicatedUrl || input.source.url,
+              sourceUrl,
               evidence,
               signature,
               eventUpdatedAtSnapshot: calendar.updatedAt,
@@ -1059,7 +1101,7 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
     base.candidates.push({
       stableKey: identity.stableKey,
       matchStatus: 'NEW_EVENT',
-      sourceUrl: identity.dedicatedUrl || input.source.url,
+      sourceUrl,
       evidence,
       payload: identity.event,
     });
@@ -1079,13 +1121,13 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
     base.baselinesEstablished += 1;
   }
 
-  base.advanceProcessedBaseline = true;
+  base.advanceProcessedBaseline = !ambiguousIdentity;
   return finish(
     {
       httpStatus: input.httpStatus,
       retrievalFailed: false,
       blocked: false,
-      partial: false,
+      partial: ambiguousIdentity,
       emptyUnverified: false,
       extractionRan: true,
       skippedUnchanged: false,
@@ -1095,8 +1137,8 @@ export function buildCheckRecords(input: BuildCheckInput): BuildCheckResult {
       baselinesEstablished: base.baselinesEstablished,
       unchangedEvents: base.unchangedEvents,
     },
-    null,
-    true
+    ambiguousIdentity ? 'Event identity is ambiguous and needs review' : null,
+    !ambiguousIdentity
   );
 }
 
@@ -1129,7 +1171,7 @@ export function decideProposalReview(input: {
     return { type: 'invalid', message: 'Proposal is no longer pending review' };
   }
   if (input.action === 'reject') return { type: 'rejected' };
-  if (input.event.updatedAt.getTime() > input.proposal.eventUpdatedAtSnapshot.getTime()) {
+  if (input.event.updatedAt.getTime() !== input.proposal.eventUpdatedAtSnapshot.getTime()) {
     return { type: 'conflict' };
   }
 

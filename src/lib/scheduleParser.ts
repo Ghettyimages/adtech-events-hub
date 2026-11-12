@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { llmText } from './llm';
 import { prisma } from './db';
 import { extractSponsorFromText, type SponsorKind } from './sponsorExtract';
+import { groundScheduleDates } from './scheduleEvidence';
 
 export const parsedScheduleEventSchema = z.object({
   title: z.string().min(1),
@@ -14,6 +15,8 @@ export const parsedScheduleEventSchema = z.object({
   start: z.string().min(1),
   end: z.string().min(1),
   timezone: z.string().optional(),
+  temporalKind: z.enum(['ALL_DAY', 'TIMED']).optional(),
+  evidence: z.string().optional(),
   tags: z.array(z.string()).optional(),
   sponsoredBy: z.string().nullable().optional(),
   sponsorKind: z.enum(['SPONSORED', 'PARTNERSHIP']).nullable().optional(),
@@ -223,8 +226,8 @@ function buildSystemPrompt(skipUmbrella: boolean, forHub: boolean): string {
     : `- Include multi-day umbrella / brand presence rows when they appear in the paste.`;
 
   const yearRule = forHub
-    ? `- Use the hub date range for year when the paste omits a year.`
-    : `- When the paste omits a year, prefer an explicit year in the text; otherwise use the current or upcoming year consistent with the dates.`;
+    ? `- Only emit dates supported by explicit date expressions in the paste. The hub date range is a boundary, not permission to guess a year.`
+    : `- Only emit dates supported by an explicit year in the event's source date expression or applicable dated day header. Never guess the current/upcoming year. Omit unverifiable rows and explain in warnings.`;
 
   const intro = forHub
     ? 'You extract festival agenda sessions from pasted text into strict JSON.'
@@ -239,8 +242,8 @@ Return ONLY valid JSON with this shape:
       "title": "string",
       "description": "string or null",
       "location": "string or null",
-      "start": "naive local datetime string YYYY-MM-DDTHH:mm:ss (NO Z, NO numeric offset)",
-      "end": "naive local datetime string YYYY-MM-DDTHH:mm:ss (NO Z, NO numeric offset)",
+      "start": "YYYY-MM-DD for date-only events; otherwise naive local YYYY-MM-DDTHH:mm:ss",
+      "end": "inclusive YYYY-MM-DD for date-only events; otherwise naive local YYYY-MM-DDTHH:mm:ss",
       "timezone": "IANA timezone e.g. America/New_York or Europe/Paris",
       "tags": ["tag-slug", ...],
       "sponsoredBy": "partner/sponsor name only, or null",
@@ -261,7 +264,7 @@ ${umbrellaRule}
 - Venue lines (e.g. "Smartly Penthouse", "Amazon Port") belong in location, not title.
 - If "[INVITE ONLY]" or similar appears, add tag "invite-only" (you may keep the phrase in the title).
 ${yearRule}
-- For all-day or untimed blocks, use start at 00:00:00 and end at 23:59:59 on that day in the given timezone.
+- For all-day or untimed blocks, emit date-only YYYY-MM-DD values with inclusive end date. Never invent 00:00, 08:00, 18:00, 23:59, or other clock times. A multi-day umbrella retains its complete stated date range.
 - description: extra detail only (not duplicate of title); null if none.
 - tags: lowercase slugs; include invite-only when applicable.
 - sponsoredBy: partner or sponsor organization name ONLY (e.g. "Google", "IAB & Yahoo"), or null.
@@ -285,6 +288,8 @@ export async function parseHostSchedule(
   } = options;
 
   let userPrompt: string;
+  let hubRange: { start: string; end: string } | undefined;
+  let sourceTimezone = defaultTimezone;
   if (hubSlug) {
     const hub = await prisma.eventHub.findUnique({
       where: { slug: hubSlug },
@@ -298,6 +303,8 @@ export async function parseHostSchedule(
     const hubStart = hub.start.toISOString().slice(0, 10);
     const hubEnd = hub.end.toISOString().slice(0, 10);
     const hubTimezone = hub.timezone || defaultTimezone;
+    hubRange = { start: hubStart, end: hubEnd };
+    sourceTimezone = hubTimezone;
 
     userPrompt = `Host: ${hostName}
 Festival hub: ${hub.name} (${hubSlug})
@@ -369,14 +376,20 @@ ${rawText.slice(0, 120000)}
   const events: ParsedScheduleEvent[] = [];
 
   for (const row of rows) {
+    const grounded = groundScheduleDates(row, rawText, rows.map((item) => item.title), sourceTimezone, hubRange);
+    if (!grounded) {
+      warnings.push(`Skipped "${row.title}": its date range could not be verified in the pasted source. Add an explicit year/date header and clock range where applicable.`);
+      continue;
+    }
     const sponsor = applySponsorExtraction(row, hostName);
     const rowResult = parsedScheduleEventSchema.safeParse({
       ...row,
+      ...grounded,
       title: sponsor.title,
       description: sponsor.description,
       sponsoredBy: sponsor.sponsoredBy,
       sponsorKind: sponsor.sponsorKind,
-      timezone: row.timezone || defaultTimezone,
+      timezone: grounded.timezone,
     });
     if (rowResult.success) {
       events.push(rowResult.data);

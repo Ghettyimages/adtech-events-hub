@@ -51,7 +51,7 @@ async function loadExtractorForTests() {
   }
 }
 
-async function extractFixture(rawEvent: RawAgentEvent, html: string) {
+async function extractFixture(rawEvent: RawAgentEvent, html: string, expectRejected = false) {
   const originalFetch = globalThis.fetch;
   process.env.OPENAI_API_KEY ||= 'extractor-test-key';
   globalThis.fetch = async () =>
@@ -63,8 +63,8 @@ async function extractFixture(rawEvent: RawAgentEvent, html: string) {
     );
   try {
     const { extractEventsFromUrl } = await loadExtractorForTests();
-    const result = await extractEventsFromUrl('https://example.com/event', 'Test', html);
-    assert.equal(result.events.length, 1);
+    const result = await extractEventsFromUrl('https://93.184.216.34/event', 'Test', html);
+    assert.equal(result.events.length, expectRejected ? 0 : 1, JSON.stringify(result.verificationIssues));
     return result.events[0];
   } finally {
     globalThis.fetch = originalFetch;
@@ -323,7 +323,6 @@ function testSplashPageClockTime() {
       10 / 01 / 2026
       6:00pm - 11:00pm
       New York, NY
-      09/22/2026 7:30PM - 11:30PM
     </body></html>
   `;
   const dates = extractStrictDates(html);
@@ -363,11 +362,14 @@ async function testExtractorTemporalEvidenceAuthority() {
   // 1. An explicit source-page range overrides unsupported agent clocks.
   const pageClock = await extractFixture(
     baseRaw,
-    '<html><body><h1>Launch Party</h1><p>10/01/2026 6:00pm - 11:00pm</p></body></html>'
+    '<html><body><h1>Launch Party</h1><p>10/01/2026 6:00pm - 11:00pm ET</p></body></html>'
   );
   assert.equal(pageClock.start, '2026-10-01T18:00:00');
   assert.equal(pageClock.end, '2026-10-01T23:00:00');
   assert.equal(pageClock.temporalKind, TEMPORAL_KIND.TIMED);
+  assert.equal(pageClock.timezone, 'America/New_York');
+  await extractFixture(baseRaw,
+    '<h1>Launch Party</h1><p>10/01/2026 6:00pm - 11:00pm</p>', true);
   assert.equal(pageClock.date_status, 'confirmed');
   assert.equal(pageClock.evidence_context, 'visible-text');
 
@@ -382,7 +384,7 @@ async function testExtractorTemporalEvidenceAuthority() {
   );
   assert.equal(structuredClock.temporalKind, TEMPORAL_KIND.TIMED);
   assert.equal(structuredClock.date_status, 'confirmed');
-  assert.equal(structuredClock.evidence_context, 'visible-text');
+  assert.equal(structuredClock.evidence_context, 'meta-tags');
   assert.match(structuredClock.start!, /T/);
   assert.match(structuredClock.end!, /T/);
 
@@ -400,31 +402,13 @@ async function testExtractorTemporalEvidenceAuthority() {
   assert.equal(sourceDateOnly.date_status, 'confirmed');
   assert.equal(sourceDateOnly.evidence_context, 'visible-text');
 
-  // 4. Agent-only clocks lose their time component and never become confirmed.
-  const unsupportedClock = await extractFixture(
-    baseRaw,
-    '<html><body><h1>Launch Party</h1><p>Full schedule coming soon.</p></body></html>'
-  );
-  assert.equal(unsupportedClock.start, '2026-10-01');
-  assert.equal(unsupportedClock.end, '2026-10-01');
-  assert.equal(unsupportedClock.temporalKind, TEMPORAL_KIND.ALL_DAY);
-  assert.equal(unsupportedClock.date_status, 'tbd');
-  assert.equal(unsupportedClock.evidence, undefined);
-  assert.equal(unsupportedClock.evidence_context, 'agent');
+  // Unsupported model clocks/dates are rejected, not merely displayed as TBD.
+  await extractFixture(baseRaw,
+    '<html><body><h1>Launch Party</h1><p>Full schedule coming soon.</p></body></html>', true);
+  await extractFixture({ ...baseRaw, dates: { start: 'Oct 01, 2026', end: 'Oct 01, 2026' } },
+    '<html><body><h1>Launch Party</h1><p>Full schedule coming soon.</p></body></html>', true);
 
-  // 5. Agent-only date guesses remain unconfirmed all-day civil dates.
-  const unsupportedDateOnly = await extractFixture(
-    {
-      ...baseRaw,
-      dates: { start: 'Oct 01, 2026', end: 'Oct 01, 2026' },
-    },
-    '<html><body><h1>Launch Party</h1><p>Full schedule coming soon.</p></body></html>'
-  );
-  assert.equal(unsupportedDateOnly.temporalKind, TEMPORAL_KIND.ALL_DAY);
-  assert.equal(unsupportedDateOnly.date_status, 'tbd');
-  assert.equal(unsupportedDateOnly.evidence_context, 'agent');
-
-  // 6. Multi-day preservation keeps only the agent end civil date, never its clock.
+  // 6. A model multi-day end never overrides a source single-day range.
   const multiDay = await extractFixture(
     {
       ...baseRaw,
@@ -433,7 +417,7 @@ async function testExtractorTemporalEvidenceAuthority() {
     '<html><body><h1>Launch Party</h1><p>October 1, 2026</p></body></html>'
   );
   assert.equal(multiDay.start, '2026-10-01');
-  assert.equal(multiDay.end, '2026-10-03');
+  assert.equal(multiDay.end, '2026-10-01');
   assert.equal(multiDay.temporalKind, TEMPORAL_KIND.ALL_DAY);
   assert.equal(multiDay.date_status, 'confirmed');
   assert.equal(multiDay.evidence_context, 'visible-text');
@@ -452,18 +436,13 @@ async function testExtractorTemporalEvidenceAuthority() {
   assert.equal(sourceStartClockOnly.date_status, 'confirmed');
   assert.equal(sourceStartClockOnly.evidence_context, 'visible-text');
 
-  // 8. Mixed source-backed clock/date values normalize both bounds to civil dates.
-  const mixedSourceValues = await extractFixture(
-    baseRaw,
+  // Mixed clock/date metadata is incomplete, not a fabricated all-day range.
+  await extractFixture(baseRaw,
     `<html><body><h1>Launch Party</h1>
       <meta itemprop="startDate" content="2026-10-01T18:00:00-04:00">
       <meta itemprop="endDate" content="2026-10-01">
-    </body></html>`
-  );
-  assert.equal(mixedSourceValues.start, '2026-10-01');
-  assert.equal(mixedSourceValues.end, '2026-10-01');
-  assert.equal(mixedSourceValues.temporalKind, TEMPORAL_KIND.ALL_DAY);
-  assert.equal(mixedSourceValues.date_status, 'confirmed');
+    </body></html>`, true);
+
 }
 
 function testDstBoundary() {

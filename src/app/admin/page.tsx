@@ -767,6 +767,9 @@ export default function AdminPage() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to scrape URL');
+      if (data.verificationStatus === 'UNVERIFIED') {
+        throw new Error(data.message || 'Could not verify event details against the source.');
+      }
 
       const scrapedHubName = scrapeHub.hubSlug
         ? hubsList.find((h) => h.slug === scrapeHub.hubSlug)?.name ?? scrapeHub.hubSlug
@@ -775,12 +778,17 @@ export default function AdminPage() {
         (data.eventsAdded ?? 0) + (data.eventsFlaggedDuplicate ?? 0);
 
       const resultParts = [
-        `✅ Scraped successfully using ${getExtractionMethodLabel(data.extractionMethod)} method`,
+        data.success === false
+          ? `⚠ Check incomplete using ${getExtractionMethodLabel(data.extractionMethod)} method`
+          : `✅ Checked using ${getExtractionMethodLabel(data.extractionMethod)} method`,
+        data.message || '',
         `Found ${data.eventsFound || 0} events`,
         data.eventsAdded ? `Added ${data.eventsAdded} new events (pending approval)` : '',
         data.eventsFlaggedDuplicate ? `${data.eventsFlaggedDuplicate} potential duplicates sent to review queue` : '',
         data.eventsSkipped ? `${data.eventsSkipped} events skipped (missing required dates)` : '',
         data.skippedPastEvents ? `${data.skippedPastEvents} past events skipped` : '',
+        data.rejectedEvents ? `${data.rejectedEvents} events could not be verified against the source and were not saved` : '',
+        data.eventsErrored ? `${data.eventsErrored} events could not be saved` : '',
         enableMonitoring && data.monitoredUrl ? '✅ URL added to monitoring' : '',
         scrapedHubName && ingestedCount > 0
           ? `Assigned to “${scrapedHubName}” — open Hub Pending below and click Approve to publish on the festival hub page.`
@@ -795,7 +803,8 @@ export default function AdminPage() {
       setScrapeName('');
       setEnableMonitoring(false);
       setScrapeHub(EMPTY_HUB_ASSIGN);
-      setFeedback('success', 'URL scraped successfully!');
+      setFeedback(data.success === false ? 'error' : 'success', data.success === false
+        ? 'Check incomplete. Review the results and source evidence.' : 'Source check completed.');
       await fetch('/api/revalidate', { method: 'POST' });
       await fetchPendingEvents();
       await fetchHubPendingEvents();

@@ -33,6 +33,8 @@ function toExtractedEvents(
       start: sanitizeScheduleWallClock(e.start, timezone),
       end: sanitizeScheduleWallClock(e.end, timezone),
       timezone,
+      temporalKind: e.temporalKind,
+      evidence: e.evidence,
       tags: e.tags,
       sponsoredBy: e.sponsoredBy ?? undefined,
       sponsorKind: e.sponsorKind ?? undefined,
